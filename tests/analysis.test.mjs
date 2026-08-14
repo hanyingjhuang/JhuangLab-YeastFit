@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { trapezoidAUC, maxSpecificGrowthRate, analyzeCurve, normalizeToControls, compareGroupsToControl } from '../js/analysis.js';
-import { detectShape, wideToLong, normalizeWell } from '../js/data.js';
+import { trapezoidAUC, maxSpecificGrowthRate, analyzeCurve, analyzeSerialSeries, normalizeToControls, compareGroupsToControl } from '../js/analysis.js';
+import { detectShape, wideToLong, normalizeWell, optionalNumber } from '../js/data.js';
 
 const pts = [
   { time: 0, value: 0.05 },
@@ -28,6 +28,20 @@ test('analysis returns core metrics', () => {
   assert.ok(Number.isFinite(out.timeToThreshold));
 });
 
+test('serial analysis reports change and trend without requiring growth kinetics', () => {
+  const daily = [
+    { time: 0, value: 1.0 },
+    { time: 1, value: 0.9 },
+    { time: 2, value: 0.8 },
+    { time: 3, value: 0.7 }
+  ];
+  const out = analyzeSerialSeries(daily);
+  assert.ok(Math.abs(out.absoluteChange + 0.3) < 1e-12);
+  assert.ok(Math.abs(out.foldChange - 0.7) < 1e-12);
+  assert.ok(out.trendSlope < 0);
+  assert.ok(out.trendR2 > 0.99);
+});
+
 test('wide plate layout is detected and reshaped', () => {
   const rows = [{ Time: 0, A01: 0.1, A02: 0.2, A03: 0.2, A04: 0.2 }];
   const shape = detectShape(rows);
@@ -35,6 +49,19 @@ test('wide plate layout is detected and reshaped', () => {
   const long = wideToLong(rows, 'Time', shape.suggestions.wellColumns);
   assert.equal(long.length, 4);
   assert.equal(long[0].well, 'A1');
+});
+
+test('daily time headers are recognized', () => {
+  const rows = [{ day: 0, A1: 1, A2: 1, A3: 1, A4: 1 }];
+  const shape = detectShape(rows);
+  assert.equal(shape.type, 'wide_plate_timeseries');
+  assert.equal(shape.suggestions.time, 'day');
+});
+
+test('blank numeric fields use the requested fallback', () => {
+  assert.equal(optionalNumber('', -Infinity), -Infinity);
+  assert.equal(optionalNumber('   ', Infinity), Infinity);
+  assert.equal(optionalNumber('24', NaN), 24);
 });
 
 test('well names normalize', () => assert.equal(normalizeWell(' b07 '), 'B7'));
