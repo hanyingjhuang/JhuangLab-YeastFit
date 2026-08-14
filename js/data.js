@@ -10,6 +10,12 @@ export function normalizeWell(v) {
   return m ? `${m[1]}${Number(m[2])}` : s;
 }
 
+export function optionalNumber(v, fallback = NaN) {
+  if (v === null || v === undefined || String(v).trim() === '') return fallback;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 export function inferDelimiter(text) {
   const first = text.split(/\r?\n/).filter(Boolean).slice(0, 5);
   const candidates = [',', '\t', ';', '|'];
