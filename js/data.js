@@ -39,7 +39,7 @@ export function detectShape(rows) {
   if (!rows.length) return { type: 'empty', confidence: 1, suggestions: {} };
   const headers = Object.keys(rows[0]);
   const lower = Object.fromEntries(headers.map(h => [h.toLowerCase(), h]));
-  const timeAliases = ['time', 'time_h', 'time_hr', 'hours', 'hour', 'minutes', 'min', 'elapsed', 'elapsed_time'];
+  const timeAliases = ['time', 'time_h', 'time_hr', 'hours', 'hour', 'minutes', 'min', 'elapsed', 'elapsed_time', 'day', 'days', 'time_day', 'time_days', 'day_post', 'dpi'];
   const valueAliases = ['od', 'od600', 'absorbance', 'value', 'signal', 'fitness', 'growth', 'measurement'];
   const wellAliases = ['well', 'well_id', 'position'];
   const time = timeAliases.find(x => lower[x]);
@@ -48,7 +48,7 @@ export function detectShape(rows) {
   if (time && value) return { type: 'long_timeseries', confidence: 0.95, suggestions: { time: lower[time], value: lower[value], well: well ? lower[well] : null } };
   const wellCols = headers.filter(h => WELL_RE.test(h));
   if (wellCols.length >= 4) {
-    const probableTime = headers.find(h => /time|hour|min|elapsed/i.test(h)) || headers[0];
+    const probableTime = headers.find(h => /time|hour|min|elapsed|day/i.test(h)) || headers[0];
     return { type: 'wide_plate_timeseries', confidence: 0.9, suggestions: { time: probableTime, wellColumns: wellCols } };
   }
   if (well && value) return { type: 'endpoint', confidence: 0.85, suggestions: { well: lower[well], value: lower[value] } };
