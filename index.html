@@ -6,6 +6,7 @@
   <meta name="description" content="Jhuang Lab YeastFit browser-based yeast growth and fitness analysis portal." />
   <title>YeastFit | Jhuang Lab</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="styles-advanced.css" />
   <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
@@ -37,7 +38,7 @@
         <button class="step active" data-step="1"><span>1</span><div><b>Import</b><small>Data + metadata</small></div></button>
         <button class="step" data-step="2"><span>2</span><div><b>Design</b><small>Map experiment</small></div></button>
         <button class="step" data-step="3"><span>3</span><div><b>Adjust</b><small>Corrections + QC</small></div></button>
-        <button class="step" data-step="4"><span>4</span><div><b>Analyze</b><small>Growth + fitness</small></div></button>
+        <button class="step" data-step="4"><span>4</span><div><b>Results</b><small>Comprehensive analysis</small></div></button>
         <button class="step" data-step="5"><span>5</span><div><b>Compare</b><small>Controls + statistics</small></div></button>
         <button class="step" data-step="6"><span>6</span><div><b>Export</b><small>Results + recipe</small></div></button>
       </nav>
@@ -108,7 +109,7 @@
       </section>
 
       <section class="panel step-panel" data-panel="4">
-        <div class="panel-head"><div><span class="section-tag">STEP 4</span><h2>Growth and fitness analysis</h2><p>Inspect individual curves first, then summarize. QC flags do not automatically delete data.</p></div><div class="status-pill" id="analysisStatus">Not run</div></div>
+        <div class="panel-head"><div><span class="section-tag">STEP 4</span><h2>Results and comprehensive analysis</h2><p>YeastFit combines the core measurements with control normalization, replicate diagnostics, statistics, ranking, and experiment-specific analyses. QC flags do not automatically delete data.</p></div><div class="status-pill" id="analysisStatus">Not run</div></div>
         <div class="metric-cards" id="metricCards"></div>
         <div class="chart-card"><div class="chart-head"><h3>Growth curves</h3><div><select id="curveColorField"></select><button class="ghost small" id="downloadPlotBtn">Export SVG</button></div></div><div id="growthPlot" class="plot"></div></div>
         <div class="card-grid two">
@@ -151,5 +152,7 @@
   <div id="toast" class="toast"></div>
 
   <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/presets.js"></script>
+  <script type="module" src="js/advanced.js"></script>
 </body>
 </html>

@@ -1,10 +1,10 @@
 {
   "name": "jhuanglab-yeastfit",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/app.js"
+    "check": "node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/comprehensive.js && node --check js/app.js && node --check js/presets.js && node --check js/advanced.js"
   }
 }

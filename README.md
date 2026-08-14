@@ -67,3 +67,11 @@ YeastFit is intended for exploratory and routine research analysis. Automated QC
 ## Jhuang Lab
 
 YeastFit is developed for the **Jhuang Lab** and its trainees, with an emphasis on yeast genetics, physiology, mitochondrial biology, and experimental evolution.
+
+## Experiment presets
+
+YeastFit includes guided presets for daily/24-hour measurements, endpoint assays, mutant screens, genotype-by-condition designs, evolution trajectories, dose response, competition assays, dense kinetic growth curves, and fully manual analyses. Presets configure sensible defaults but every mapping, replicate field, control, stratum, correction, and analysis choice remains editable.
+
+## Comprehensive analysis
+
+The Results page automatically assembles analyses supported by the experimental design, including descriptive summaries with uncertainty, contemporaneous control normalization, per-timepoint and integrated control comparisons, technical-replicate diagnostics, robust screen ranking, factorial landscapes, 2 x 2 interaction contrasts, dose-response midpoint estimates, and competition logit-slope selection proxies. Modules that are not supported by the input data are reported as not applicable rather than forced.
