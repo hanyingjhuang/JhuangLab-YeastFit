@@ -75,3 +75,7 @@ YeastFit includes guided presets for daily/24-hour measurements, endpoint assays
 ## Comprehensive analysis
 
 The Results page automatically assembles analyses supported by the experimental design, including descriptive summaries with uncertainty, contemporaneous control normalization, per-timepoint and integrated control comparisons, technical-replicate diagnostics, robust screen ranking, factorial landscapes, 2 x 2 interaction contrasts, dose-response midpoint estimates, and competition logit-slope selection proxies. Modules that are not supported by the input data are reported as not applicable rather than forced.
+
+## Visual experiment gallery
+
+Every experiment preset has a distinct schematic and a runnable in-browser teaching demo. The Results page begins with a design-specific multi-plot visual report rather than relying on a single generic graph. Depending on the design, this includes trajectories, control-normalized trajectories, endpoint and AUC distributions, time-by-group effect maps, screen rankings, robust-Z landscapes, genotype-by-condition heatmaps, dose-response curves, competition logit trajectories, selection proxies, kinetic metric distributions, effect-size plots, and replicate-CV diagnostics.
