@@ -1,0 +1,7 @@
+sample,genotype,condition,role,biological_replicate,fitness
+WT_1,WT,YPGly,control,1,1.00
+WT_2,WT,YPGly,control,2,0.97
+WT_3,WT,YPGly,control,3,1.04
+sdh2d_1,sdh2Δ,YPGly,sample,1,0.28
+sdh2d_2,sdh2Δ,YPGly,sample,2,0.31
+sdh2d_3,sdh2Δ,YPGly,sample,3,0.26
