@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="description" content="Jhuang Lab YeastFit browser-based yeast growth and fitness analysis portal." />
+  <title>YeastFit | Jhuang Lab</title>
+  <link rel="stylesheet" href="styles.css" />
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.5.3/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand-wrap">
+      <div class="yeast-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div>
+        <div class="brand-kicker">JHUANG LAB</div>
+        <div class="brand-title">YeastFit</div>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="ghost" id="privacyBtn">Data privacy</button>
+      <button class="ghost" id="helpBtn">Methods & help</button>
+      <button class="primary" id="demoBtn">Load demo</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <aside class="sidebar">
+      <div class="lab-card">
+        <div class="lab-title">Jhuang Lab</div>
+        <p>Flexible analysis of yeast growth, fitness, and screening experiments.</p>
+        <div class="privacy-chip">● Browser-local by default</div>
+      </div>
+      <nav id="stepsNav" class="steps">
+        <button class="step active" data-step="1"><span>1</span><div><b>Import</b><small>Data + metadata</small></div></button>
+        <button class="step" data-step="2"><span>2</span><div><b>Design</b><small>Map experiment</small></div></button>
+        <button class="step" data-step="3"><span>3</span><div><b>Adjust</b><small>Corrections + QC</small></div></button>
+        <button class="step" data-step="4"><span>4</span><div><b>Analyze</b><small>Growth + fitness</small></div></button>
+        <button class="step" data-step="5"><span>5</span><div><b>Compare</b><small>Controls + statistics</small></div></button>
+        <button class="step" data-step="6"><span>6</span><div><b>Export</b><small>Results + recipe</small></div></button>
+      </nav>
+      <div class="sidebar-note">Need the underlying method or code? Open <b>Reproducibility</b> at any stage.</div>
+    </aside>
+
+    <section class="workspace">
+      <div class="hero compact">
+        <div>
+          <div class="eyebrow">YEAST GROWTH & FITNESS WORKBENCH</div>
+          <h1>Bring your data. Define your biology. Keep the analysis transparent.</h1>
+          <p>Accepts plate-reader time series, endpoint measurements, precomputed fitness values, plate maps, pasted tables, and custom experimental factors.</p>
+        </div>
+        <div class="hero-yeast" aria-hidden="true">
+          <div class="cell c1"><i></i></div><div class="cell c2"><i></i></div><div class="cell c3"><i></i></div>
+        </div>
+      </div>
+
+      <section class="panel step-panel active" data-panel="1">
+        <div class="panel-head"><div><span class="section-tag">STEP 1</span><h2>Import data</h2><p>Upload one or more files, or paste a table. YeastFit will infer the structure and show you what it thinks before analysis.</p></div></div>
+        <div class="import-grid">
+          <label class="dropzone" id="dataDrop">
+            <input id="dataFiles" type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.json" hidden />
+            <div class="drop-icon">⇧</div>
+            <b>Drop experimental data</b>
+            <span>CSV, TSV, TXT, XLSX, XLS, JSON</span>
+            <small>Multiple files are allowed. Each file can become a plate or batch.</small>
+          </label>
+          <label class="dropzone secondary-drop" id="metaDrop">
+            <input id="metaFiles" type="file" multiple accept=".csv,.tsv,.txt,.xlsx,.xls,.json" hidden />
+            <div class="drop-icon">⌘</div>
+            <b>Optional plate map / metadata</b>
+            <span>Well annotations, sample sheet, experimental design</span>
+            <small>Can also be defined manually later.</small>
+          </label>
+        </div>
+        <details class="paste-box"><summary>Paste a table instead</summary><textarea id="pasteArea" placeholder="Paste tabular data here..."></textarea><button id="parsePasteBtn" class="secondary">Parse pasted data</button></details>
+        <div class="file-list" id="fileList"></div>
+        <div class="callout hidden" id="inferenceBox"></div>
+        <div class="table-wrap hidden" id="previewWrap"><div class="table-title">Data preview</div><div id="previewTable"></div></div>
+        <div class="footer-actions"><span></span><button class="primary next-btn" data-next="2">Continue to design →</button></div>
+      </section>
+
+      <section class="panel step-panel" data-panel="2">
+        <div class="panel-head"><div><span class="section-tag">STEP 2</span><h2>Define the experiment</h2><p>Confirm the measurement columns, curve identity, biological factors, replicates, and controls. Unknown columns remain available as metadata.</p></div></div>
+        <div class="card-grid two">
+          <div class="subcard"><h3>Data structure</h3><div id="mappingControls" class="form-grid"></div></div>
+          <div class="subcard"><h3>Curve / observation identity</h3><p class="muted">Choose fields that uniquely identify an independent growth curve or endpoint observation.</p><div id="identityFields" class="chip-picker"></div></div>
+          <div class="subcard"><h3>Experimental factors</h3><p class="muted">Select any columns that represent genotype, medium, treatment, carbon source, time point, evolution line, batch, or another biological factor.</p><div id="factorFields" class="chip-picker"></div></div>
+          <div class="subcard"><h3>Replicate structure</h3><div class="form-grid"><label>Biological replicate field<select id="bioRepField"></select></label><label>Technical replicate field<select id="techRepField"></select></label><label>Batch / plate field<select id="batchField"></select></label></div></div>
+          <div class="subcard"><h3>Controls</h3><div class="form-grid"><label>Control-defining field<select id="controlField"></select></label><label>Control value<input id="controlValue" value="control" /></label><label>Normalize controls within<select id="controlStrata" multiple size="5"></select></label></div><small class="hint">Examples: normalize WT within each medium, or vehicle within each drug plate.</small></div>
+          <div class="subcard"><h3>Design review</h3><div id="designReview" class="review-list"></div></div>
+        </div>
+        <div class="footer-actions"><button class="ghost prev-btn" data-prev="1">← Back</button><button class="primary next-btn" data-next="3">Continue to adjustments →</button></div>
+      </section>
+
+      <section class="panel step-panel" data-panel="3">
+        <div class="panel-head"><div><span class="section-tag">STEP 3</span><h2>Adjustments and quality control</h2><p>Every transformation is optional and recorded in the analysis recipe. Defaults are conservative.</p></div></div>
+        <div class="card-grid three">
+          <div class="subcard"><h3>Background</h3><label class="switch-row"><span>Subtract blank</span><input id="blankEnabled" type="checkbox" /></label><label>Blank value<input id="blankValue" type="number" step="0.001" value="0" /></label><label class="switch-row"><span>Subtract initial baseline</span><input id="baselineSubtract" type="checkbox" /></label><small class="hint">If blank wells are annotated in metadata, use them as controls in a later version or enter the estimated blank here.</small></div>
+          <div class="subcard"><h3>Signal handling</h3><label>Smoothing<select id="smoothWindow"><option value="1">None</option><option value="3">3-point moving average</option><option value="5">5-point moving average</option></select></label><label class="switch-row"><span>Clamp negative corrected values to 0</span><input id="clampNegative" type="checkbox" checked /></label><label>Analyze from time<input id="startTime" type="number" step="any" placeholder="No lower limit" /></label><label>Analyze until time<input id="endTime" type="number" step="any" placeholder="No upper limit" /></label></div>
+          <div class="subcard"><h3>Growth-rate window</h3><label>Minimum signal for log phase<input id="minOD" type="number" step="0.001" value="0.03" /></label><label>Maximum signal for log phase<input id="maxOD" type="number" step="0.01" value="0.6" /></label><label>Window points<input id="windowPoints" type="number" min="3" value="5" /></label><label>Minimum R²<input id="minR2" type="number" min="0" max="1" step="0.01" value="0.95" /></label></div>
+          <div class="subcard"><h3>Threshold metric</h3><label>Signal threshold<input id="thresholdValue" type="number" step="0.01" value="0.3" /></label><small class="hint">YeastFit linearly interpolates the first crossing time.</small></div>
+          <div class="subcard"><h3>QC thresholds</h3><label>Saturation signal<input id="saturationOD" type="number" step="0.1" value="1.5" /></label><label>High starting signal<input id="highStartOD" type="number" step="0.01" value="0.25" /></label><label>Minimum dynamic range<input id="minDynamicRange" type="number" step="0.01" value="0.08" /></label><label>Maximum missing fraction<input id="maxMissingFraction" type="number" step="0.01" value="0.15" /></label></div>
+          <div class="subcard"><h3>Exclusions</h3><textarea id="excludedIds" placeholder="Optional curve IDs or wells, separated by comma or new line"></textarea><small class="hint">Exclusions are preserved in the recipe and exported with a reason field.</small></div>
+        </div>
+        <div class="footer-actions"><button class="ghost prev-btn" data-prev="2">← Back</button><button class="primary" id="runAnalysisBtn">Run analysis →</button></div>
+      </section>
+
+      <section class="panel step-panel" data-panel="4">
+        <div class="panel-head"><div><span class="section-tag">STEP 4</span><h2>Growth and fitness analysis</h2><p>Inspect individual curves first, then summarize. QC flags do not automatically delete data.</p></div><div class="status-pill" id="analysisStatus">Not run</div></div>
+        <div class="metric-cards" id="metricCards"></div>
+        <div class="chart-card"><div class="chart-head"><h3>Growth curves</h3><div><select id="curveColorField"></select><button class="ghost small" id="downloadPlotBtn">Export SVG</button></div></div><div id="growthPlot" class="plot"></div></div>
+        <div class="card-grid two">
+          <div class="subcard"><h3>Per-curve metrics</h3><div class="table-wrap"><div id="metricsTable"></div></div></div>
+          <div class="subcard"><h3>QC summary</h3><div id="qcSummary"></div></div>
+        </div>
+        <div class="footer-actions"><button class="ghost prev-btn" data-prev="3">← Back</button><button class="primary next-btn" data-next="5">Compare groups →</button></div>
+      </section>
+
+      <section class="panel step-panel" data-panel="5">
+        <div class="panel-head"><div><span class="section-tag">STEP 5</span><h2>Controls, fitness, and statistics</h2><p>Choose the metric and grouping level. Comparisons use control-aware normalization and report effect sizes with multiple-testing correction.</p></div></div>
+        <div class="toolbar-grid">
+          <label>Metric<select id="comparisonMetric"></select></label>
+          <label>Group by<select id="comparisonGroup"></select></label>
+          <label>Control field<select id="comparisonControlField"></select></label>
+          <label>Control value<input id="comparisonControlValue" value="control" /></label>
+          <button class="secondary" id="runComparisonBtn">Run comparison</button>
+        </div>
+        <div class="chart-card"><div class="chart-head"><h3>Relative fitness / phenotype</h3></div><div id="comparisonPlot" class="plot"></div></div>
+        <div class="table-wrap"><div class="table-title">Statistical comparisons</div><div id="comparisonTable"></div></div>
+        <div class="method-note">Welch two-sample t tests are used for the default control comparisons because equal variance is not assumed. Hedges’ g reports standardized effect size. Benjamini–Hochberg adjustment is applied across displayed tests. These defaults are descriptive and should be matched to the experimental unit and design.</div>
+        <div class="footer-actions"><button class="ghost prev-btn" data-prev="4">← Back</button><button class="primary next-btn" data-next="6">Export results →</button></div>
+      </section>
+
+      <section class="panel step-panel" data-panel="6">
+        <div class="panel-head"><div><span class="section-tag">STEP 6</span><h2>Export and reproduce</h2><p>Download the data products and a machine-readable record of the analysis choices.</p></div></div>
+        <div class="export-grid">
+          <button class="export-card" data-export="metrics"><b>Per-curve metrics</b><span>CSV</span><small>Growth rate, doubling time, AUC, lag, endpoint, QC.</small></button>
+          <button class="export-card" data-export="adjusted"><b>Adjusted observations</b><span>CSV</span><small>Canonical, corrected long-format measurements.</small></button>
+          <button class="export-card" data-export="comparisons"><b>Control comparisons</b><span>CSV</span><small>Ratios, differences, Hedges' g, P and q values.</small></button>
+          <button class="export-card" data-export="recipe"><b>Analysis recipe</b><span>JSON</span><small>Input mapping, factors, controls, adjustments, QC thresholds.</small></button>
+        </div>
+        <div class="subcard repro-card"><div class="chart-head"><div><h3>Reproducibility</h3><p class="muted">Copy the current recipe or inspect the code path used for the analysis.</p></div><div><button class="ghost small" id="showRecipeBtn">Show recipe</button><button class="ghost small" id="showCodeBtn">Show code</button></div></div><pre id="reproOutput">Run an analysis to generate a reproducibility record.</pre></div>
+        <div class="footer-actions"><button class="ghost prev-btn" data-prev="5">← Back</button><span></span></div>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="infoDialog"><div class="dialog-head"><h2 id="dialogTitle">Help</h2><button id="closeDialog">×</button></div><div id="dialogBody" class="dialog-body"></div></dialog>
+  <div id="toast" class="toast"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
