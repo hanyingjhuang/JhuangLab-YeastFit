@@ -139,6 +139,28 @@ export function analyzeCurve(points, options = {}) {
   };
 }
 
+export function analyzeSerialSeries(points, options = {}) {
+  const adjusted = applyAdjustments(points, options.adjustments || {});
+  const p = adjusted.filter(x => Number.isFinite(x.time) && Number.isFinite(x.value)).sort((a, b) => a.time - b.time);
+  const first = p.length ? p[0].value : NaN;
+  const endpoint = p.length ? p.at(-1).value : NaN;
+  const fit = p.length >= 2 ? linearFit(p.map(x => x.time), p.map(x => x.value)) : { slope: NaN, r2: NaN };
+  return {
+    adjusted,
+    auc: trapezoidAUC(p),
+    maxValue: p.length ? Math.max(...p.map(x => x.value)) : NaN,
+    endpoint,
+    firstValue: first,
+    absoluteChange: Number.isFinite(first) && Number.isFinite(endpoint) ? endpoint - first : NaN,
+    foldChange: Number.isFinite(first) && first !== 0 && Number.isFinite(endpoint) ? endpoint / first : NaN,
+    log2FoldChange: first > 0 && endpoint > 0 ? Math.log2(endpoint / first) : NaN,
+    trendSlope: fit.slope,
+    trendR2: fit.r2,
+    timeToThreshold: Number.isFinite(options.threshold) ? timeToThreshold(p, options.threshold) : NaN,
+    qc: qcCurve(p, options.qc || {})
+  };
+}
+
 function keyFrom(row, fields) {
   return fields.map(f => `${f}=${row[f] ?? ''}`).join('|');
 }
