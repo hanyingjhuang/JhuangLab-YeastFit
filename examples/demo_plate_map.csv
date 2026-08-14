@@ -1,0 +1,9 @@
+well,sample,genotype,medium,carbon_source,role,biological_replicate,technical_replicate,plate
+A1,WT_1,WT,YPD,glucose,control,1,1,P1
+A2,WT_1,WT,YPD,glucose,control,1,2,P1
+A3,WT_2,WT,YPD,glucose,control,2,1,P1
+A4,WT_2,WT,YPD,glucose,control,2,2,P1
+B1,mut_1,mutant,YPD,glucose,sample,1,1,P1
+B2,mut_1,mutant,YPD,glucose,sample,1,2,P1
+B3,mut_2,mutant,YPD,glucose,sample,2,1,P1
+B4,mut_2,mutant,YPD,glucose,sample,2,2,P1
