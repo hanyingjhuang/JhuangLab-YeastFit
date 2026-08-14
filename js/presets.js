@@ -1,195 +1,57 @@
-const api = window.YeastFit;
-if (!api) throw new Error('YeastFit core API is unavailable');
+import { makeDemo } from './demo-catalog.js';
 
-const { S, design, designRefresh, review, runAnalysis, toast } = api;
-const $ = s => document.querySelector(s);
-const $$ = s => [...document.querySelectorAll(s)];
-const uniq = a => [...new Set(a.filter(v => v !== '' && v != null))];
+const api=window.YeastFit;if(!api)throw new Error('YeastFit core API is unavailable');
+const{S,design,designRefresh,review,runAnalysis,toast,step}=api,$=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)],uniq=a=>[...new Set(a.filter(v=>v!==''&&v!=null))];
 
-const PRESETS = [
-  { id:'daily', name:'Daily / 24-hour measurements', tag:'Recommended for Jhuang Lab', desc:'Sparse serial OD, growth, fitness, or phenotype measurements over days.', mode:'serial', unit:'days', bundle:'Timepoint fitness + longitudinal change + AUC + slope + replicate QC + control comparisons' },
-  { id:'endpoint', name:'Single endpoint growth', tag:'Simple', desc:'One OD, colony, fluorescence, or fitness measurement per sample.', mode:'endpoint', unit:'hours', bundle:'QC + normalization + replicate summaries + effect size + FDR-adjusted control tests' },
-  { id:'screen', name:'Mutant / strain screen', tag:'Many strains', desc:'Large strain collection compared with WT or another reference.', mode:'endpoint', unit:'hours', bundle:'Control normalization + robust Z scores + ranked hits + QC + FDR' },
-  { id:'matrix', name:'Genotype × condition', tag:'Factorial', desc:'Strains across media, carbon sources, drugs, temperatures, or other conditions.', mode:'auto', unit:'hours', bundle:'Within-condition controls + factorial landscape + interaction contrast + condition-specific effects' },
-  { id:'evolution', name:'Evolution trajectory', tag:'Longitudinal', desc:'Ancestor and evolved lines followed across generations or serial timepoints.', mode:'serial', unit:'days', bundle:'Trajectory + endpoint gain + slope + AUC + ancestor normalization + line-to-line variability' },
-  { id:'dose', name:'Dose response', tag:'Concentration series', desc:'Drug, nutrient, stressor, or metabolite concentrations.', mode:'endpoint', unit:'hours', bundle:'Dose summaries + normalized response + half-response estimate + effect sizes + QC' },
-  { id:'competition', name:'Competition assay', tag:'Frequency data', desc:'Focal strain frequency or fraction measured over time.', mode:'serial', unit:'days', bundle:'Frequency trajectories + logit slope + selection-coefficient proxy + replicate QC' },
-  { id:'kinetic', name:'Dense growth curve', tag:'Plate reader', desc:'Frequent measurements that resolve lag and exponential growth.', mode:'kinetic', unit:'hours', bundle:'μmax + doubling time + lag + AUC + threshold time + kinetic QC' },
-  { id:'manual', name:'Manual / custom', tag:'Full control', desc:'Keep every mapping and analysis choice fully manual.', mode:'auto', unit:'hours', bundle:'No preset assumptions. Configure every field and analysis manually.' }
+export const PRESETS=[
+{id:'daily',name:'Daily measurements',kicker:'Same cultures, sparse timepoints',question:'Measure the same cultures every ~24 h',mode:'serial',unit:'days',outputs:'Trajectories · timepoint fitness · endpoint · AUC · effect map · replicate QC'},
+{id:'endpoint',name:'Single endpoint',kicker:'One read per culture',question:'Compare one final OD, colony, fluorescence, or fitness value',mode:'endpoint',unit:'hours',outputs:'Distributions · control ratios · effect sizes · FDR · replicate QC'},
+{id:'screen',name:'Strain screen',kicker:'Many mutants vs reference',question:'Rank a large strain collection against WT or another reference',mode:'endpoint',unit:'hours',outputs:'Ranked fitness · robust Z · candidate map · effect sizes · QC'},
+{id:'matrix',name:'Genotype × condition',kicker:'Two experimental axes',question:'Ask whether strain phenotype depends on medium, drug, stress, or environment',mode:'endpoint',unit:'hours',outputs:'Heatmap · condition-specific effects · interaction view · distributions · QC'},
+{id:'evolution',name:'Evolution',kicker:'Independent lines through time',question:'Follow ancestor and evolved lines across generations or passages',mode:'serial',unit:'days',outputs:'Trajectories · gains · slopes · AUC · line variability · effect map'},
+{id:'dose',name:'Dose response',kicker:'Concentration gradient',question:'Measure response across drug, nutrient, iron, stressor, or metabolite doses',mode:'endpoint',unit:'hours',outputs:'Dose curves · normalized response · midpoint dose · effect sizes · QC'},
+{id:'competition',name:'Competition',kicker:'Frequency changes over time',question:'Track focal-strain fraction against a competitor',mode:'serial',unit:'days',outputs:'Frequency · logit trajectory · selection proxy · replicate QC'},
+{id:'kinetic',name:'Dense growth curve',kicker:'Frequent plate-reader sampling',question:'Resolve lag and exponential growth with many measurements',mode:'kinetic',unit:'hours',outputs:'Curves · μmax · doubling time · lag · AUC · carrying signal · QC'},
+{id:'manual',name:'Manual / custom',kicker:'Anything else',question:'Build the design yourself when no archetype matches',mode:'auto',unit:'hours',outputs:'All mappings, controls, factors, and analysis choices remain editable'}
 ];
 
-function fields() {
-  const rows = S.raw || [];
-  return rows.length ? Object.keys(rows[0]).filter(x => !x.startsWith('__')) : [];
-}
-function field(re) { return fields().find(f => re.test(f)); }
-function values(f) { return f ? uniq((S.raw || []).map(r => String(r[f] ?? '').trim())) : []; }
-function preferredValue(f, candidates) {
-  const vals = values(f);
-  for (const c of candidates) {
-    const hit = vals.find(v => c.test(v));
-    if (hit != null) return hit;
-  }
-  return '';
-}
-function setValue(sel, value) {
-  const e = $(sel);
-  if (!e || value == null) return;
-  const option = [...e.options].find(o => o.value === String(value) || o.textContent === String(value));
-  if (option) e.value = option.value;
-}
-function selectMultiple(sel, wanted) {
-  const e = $(sel);
-  if (!e) return;
-  const set = new Set(wanted.filter(Boolean));
-  [...e.options].forEach(o => { o.selected = set.has(o.value) || set.has(o.textContent); });
-}
-function factorCandidates() {
-  const f = fields();
-  return f.filter(x => /genotype|strain|medium|media|condition|treatment|carbon|drug|dose|concentration|temperature|generation|evolution|line|stress|nutrient|background/i.test(x));
-}
-function identityCandidates() {
-  const f = fields();
-  const p = f.filter(x => /^(plate|well|sample|sample_id|strain_id|culture|replicate_id)$/i.test(x));
-  return p.length ? p.slice(0, 2) : f.filter(x => /well|sample|culture/i.test(x)).slice(0,2);
-}
-function replicateFields() {
-  return {
-    bio: field(/biological.*rep|bio.*rep|biorep/i),
-    tech: field(/technical.*rep|tech.*rep|techrep/i),
-    batch: field(/^plate$|batch|run|experiment_id/i)
-  };
-}
-function chooseControl(preset) {
-  const role = field(/^role$|control_type|sample_type/i);
-  const genotype = field(/genotype|strain/i);
-  const dose = field(/^dose$|concentration|conc/i);
-  if (preset === 'screen' || preset === 'matrix') {
-    if (genotype) return { field: genotype, value: preferredValue(genotype, [/^WT$/i,/wild.?type/i,/parent/i,/ancestor/i]) || values(genotype)[0] || '' };
-  }
-  if (preset === 'dose' && dose) {
-    const zero = values(dose).find(v => Number(v) === 0);
-    if (zero != null) return { field: dose, value: zero };
-  }
-  if (role) return { field: role, value: preferredValue(role, [/^control$/i,/reference/i,/vehicle/i,/WT/i,/ancestor/i]) || values(role)[0] || 'control' };
-  if (genotype) return { field: genotype, value: preferredValue(genotype, [/^WT$/i,/wild.?type/i,/ancestor/i,/parent/i]) || values(genotype)[0] || '' };
-  return { field:'', value:'control' };
-}
-function strataFor(preset, controlField) {
-  const candidates = fields().filter(f => /plate|batch|medium|media|carbon|condition|treatment|temperature|background|environment/i.test(f));
-  if (preset === 'matrix') return candidates.filter(f => f !== controlField).slice(0,4);
-  if (preset === 'dose') return candidates.filter(f => f !== controlField).slice(0,3);
-  if (preset === 'screen') return candidates.filter(f => f !== controlField).slice(0,3);
-  return candidates.filter(f => f !== controlField).slice(0,3);
-}
+function schematic(id){const common='viewBox="0 0 180 82" aria-hidden="true"';
+if(id==='daily')return`<svg ${common}><g class="ycell"><ellipse cx="22" cy="38" rx="13" ry="16"/><ellipse cx="76" cy="34" rx="14" ry="17"/><ellipse cx="132" cy="29" rx="16" ry="20"/></g><path d="M38 38h20M92 34h20"/><path class="accent" d="M45 57h100"/><g class="tinytext"><text x="12" y="76">D0</text><text x="67" y="76">D1</text><text x="123" y="76">D2</text></g></svg>`;
+if(id==='endpoint')return`<svg ${common}><g class="ycell"><ellipse cx="28" cy="33" rx="13" ry="16"/><ellipse cx="62" cy="42" rx="12" ry="15"/><ellipse cx="94" cy="30" rx="14" ry="17"/></g><path d="M111 37h20"/><rect class="accent-fill" x="139" y="19" width="27" height="37" rx="5"/><path class="paper-line" d="M146 29h13M146 36h13M146 43h9"/></svg>`;
+if(id==='screen')return`<svg ${common}><g class="dotgrid">${Array.from({length:24},(_,i)=>`<circle ${i===14?'class="accent-fill"':''} cx="${20+(i%8)*19}" cy="${20+Math.floor(i/8)*20}" r="6"/>`).join('')}</g></svg>`;
+if(id==='matrix')return`<svg ${common}><g class="matrixgrid">${Array.from({length:12},(_,i)=>`<rect class="m${i%4}" x="${38+(i%4)*27}" y="${10+Math.floor(i/4)*22}" width="20" height="16" rx="3"/>`).join('')}</g><path d="M23 14v48M30 70h115"/></svg>`;
+if(id==='evolution')return`<svg ${common}><path class="accent" d="M17 41h35M52 41C74 41 72 15 96 15h61M52 41c22 0 20 26 44 26h61M76 41h81"/><g class="ycell"><ellipse cx="17" cy="41" rx="10" ry="13"/><ellipse cx="157" cy="15" rx="9" ry="11"/><ellipse cx="157" cy="41" rx="9" ry="11"/><ellipse cx="157" cy="67" rx="9" ry="11"/></g></svg>`;
+if(id==='dose')return`<svg ${common}><path d="M18 62h145"/><g class="dosedots">${[0,1,2,3,4,5].map((x,i)=>`<circle cx="${27+i*25}" cy="38" r="${7+i}" class="${i>3?'accent-fill':''}"/>`).join('')}</g><g class="tinytext"><text x="18" y="78">low</text><text x="143" y="78">high</text></g></svg>`;
+if(id==='competition')return`<svg ${common}><path class="accent" d="M17 62C60 58 95 45 161 18"/><path d="M17 18c50 5 86 19 144 44"/><g class="ycell"><ellipse cx="18" cy="62" rx="9" ry="11"/><ellipse cx="18" cy="18" rx="9" ry="11"/></g><circle class="accent-fill" cx="161" cy="18" r="9"/><circle cx="161" cy="62" r="9"/></svg>`;
+if(id==='kinetic')return`<svg ${common}><path d="M17 68h148M20 70V12"/><path class="accent thick" d="M21 65C47 65 57 63 70 56S91 29 105 20s31-7 57-7"/><g class="curvepoints">${[[21,65],[48,64],[70,56],[89,36],[106,20],[135,14],[161,13]].map(([x,y])=>`<circle cx="${x}" cy="${y}" r="3"/>`).join('')}</g></svg>`;
+return`<svg ${common}><rect x="24" y="15" width="132" height="52" rx="9"/><path d="M45 29h88M45 41h63M45 53h101"/><circle class="accent-fill" cx="119" cy="41" r="6"/></svg>`;}
 
-function applyPreset(id) {
-  if (!S.raw?.length) return toast('Load experimental data first, then choose a preset.');
-  design();
-  const preset = PRESETS.find(p => p.id === id);
-  if (!preset) return;
-  S.design.preset = id;
-  S.design.presetName = preset.name;
-  if (id === 'manual') {
-    S.design.seriesMode = $('#seriesMode')?.value || 'auto';
-    updateSelected(id);
-    showSummary(preset, 'No settings changed. Every field remains editable.');
-    return;
-  }
-  S.design.seriesMode = preset.mode;
-  S.design.timeUnit = preset.unit;
-  setValue('#seriesMode', preset.mode);
-  const timeField = field(/^day$|days|time|hour|elapsed|generation/i);
-  if (preset.id === 'evolution' && field(/generation/i)) setValue('#timeField', field(/generation/i));
-  else if (timeField) setValue('#timeField', timeField);
-  if (/day/i.test($('#timeField')?.value || '')) S.design.timeUnit = 'days';
-  setValue('#timeUnit', S.design.timeUnit);
+function fields(){return S.raw?.length?Object.keys(S.raw[0]).filter(x=>!x.startsWith('__')):[]}
+function field(re){return fields().find(f=>re.test(f))}
+function values(f){return f?uniq(S.raw.map(r=>String(r[f]??'').trim())):[]}
+function preferredValue(f,candidates){for(const c of candidates){const h=values(f).find(v=>c.test(v));if(h!=null)return h}return''}
+function setValue(sel,value){const e=$(sel);if(!e||value==null)return;const o=[...e.options].find(x=>x.value===String(value)||x.textContent===String(value));if(o)e.value=o.value}
+function selectMultiple(sel,wanted){const e=$(sel);if(!e)return;const s=new Set(wanted.filter(Boolean));[...e.options].forEach(o=>o.selected=s.has(o.value)||s.has(o.textContent))}
+function factorCandidates(){return fields().filter(x=>/genotype|strain|medium|media|condition|treatment|carbon|drug|dose|concentration|temperature|generation|evolution|line|stress|nutrient|background|environment/i.test(x))}
+function identityCandidates(){const f=fields(),p=f.filter(x=>/^(plate|well|sample|sample_id|strain_id|culture|replicate_id)$/i.test(x));return p.length?p.slice(0,2):f.filter(x=>/well|sample|culture/i.test(x)).slice(0,2)}
+function replicateFields(){return{bio:field(/biological.*rep|bio.*rep|biorep/i),tech:field(/technical.*rep|tech.*rep|techrep/i),batch:field(/^plate$|batch|run|experiment_id/i)}}
+function chooseControl(id){const role=field(/^role$|control_type|sample_type/i),genotype=field(/genotype|strain/i),dose=field(/^dose$|concentration|conc/i);if(id==='competition')return{field:'',value:''};if(['screen','matrix'].includes(id)&&genotype)return{field:genotype,value:preferredValue(genotype,[/^WT$/i,/wild.?type/i,/parent/i,/ancestor/i])||values(genotype)[0]||''};if(id==='dose'&&dose){const z=values(dose).find(v=>Number(v)===0);if(z!=null)return{field:dose,value:z}}if(role)return{field:role,value:preferredValue(role,[/^control$/i,/reference/i,/vehicle/i,/WT/i,/ancestor/i])||values(role)[0]||'control'};if(genotype)return{field:genotype,value:preferredValue(genotype,[/^WT$/i,/wild.?type/i,/ancestor/i,/parent/i])||values(genotype)[0]||''};return{field:'',value:'control'}}
+function strataFor(id,controlField){const c=fields().filter(f=>/plate|batch|medium|media|carbon|condition|treatment|temperature|background|environment/i.test(f));return c.filter(f=>f!==controlField).slice(0,id==='matrix'?4:3)}
 
-  const reps = replicateFields();
-  S.design.bioRepField = reps.bio || '';
-  S.design.techRepField = reps.tech || '';
-  S.design.batchField = reps.batch || '';
-  S.id = identityCandidates();
-  S.factors = factorCandidates();
-  if (preset.id === 'evolution') S.factors = uniq([...S.factors, field(/generation/i), field(/evolution.*line|line/i)]);
-  if (preset.id === 'dose') S.factors = uniq([...S.factors, field(/^dose$|concentration|conc/i)]);
-  const ctrl = chooseControl(id);
-  S.design.controlField = ctrl.field;
-  S.design.controlValue = ctrl.value;
-  S.design.controlStrata = strataFor(id, ctrl.field);
-  designRefresh();
-  setValue('#seriesMode', S.design.seriesMode);
-  setValue('#timeUnit', S.design.timeUnit);
-  setValue('#bioRepField', reps.bio || '');
-  setValue('#techRepField', reps.tech || '');
-  setValue('#batchField', reps.batch || '');
-  setValue('#controlField', ctrl.field);
-  if ($('#controlValue')) $('#controlValue').value = ctrl.value;
-  selectMultiple('#controlStrata', S.design.controlStrata);
-  review();
-  updateSelected(id);
-  showSummary(preset, describeChoices(ctrl, reps));
-}
+export function applyPreset(id){if(!S.raw?.length)return toast('Load data or run a design demo first.');design();const p=PRESETS.find(x=>x.id===id);if(!p)return;S.design.preset=id;S.design.presetName=p.name;if(id==='manual'){S.design.seriesMode=$('#seriesMode')?.value||'auto';updateSelected(id);showSummary(p,'Nothing was forced. Review every mapping below.');return}S.design.seriesMode=p.mode;S.design.timeUnit=p.unit;setValue('#seriesMode',p.mode);const tf=id==='evolution'?field(/generation/i):field(/^day$|days|^time$|hour|elapsed|generation/i);if(tf)setValue('#timeField',tf);if(/day/i.test($('#timeField')?.value||''))S.design.timeUnit='days';setValue('#timeUnit',S.design.timeUnit);const reps=replicateFields();S.design.bioRepField=reps.bio||'';S.design.techRepField=reps.tech||'';S.design.batchField=reps.batch||'';S.id=identityCandidates();S.factors=factorCandidates();const ctrl=chooseControl(id);S.design.controlField=ctrl.field;S.design.controlValue=ctrl.value;S.design.controlStrata=strataFor(id,ctrl.field);designRefresh();setValue('#seriesMode',S.design.seriesMode);setValue('#timeUnit',S.design.timeUnit);setValue('#bioRepField',reps.bio||'');setValue('#techRepField',reps.tech||'');setValue('#batchField',reps.batch||'');setValue('#controlField',ctrl.field);if($('#controlValue'))$('#controlValue').value=ctrl.value;selectMultiple('#controlStrata',S.design.controlStrata);review();updateSelected(id);showSummary(p,describeChoices(ctrl,reps))}
+function describeChoices(ctrl,reps){const b=[];if(S.id.length)b.push(`unit ${S.id.join(' + ')}`);if(ctrl.field)b.push(`control ${ctrl.field} = ${ctrl.value}`);if(reps.bio)b.push(`bio reps ${reps.bio}`);if(reps.tech)b.push(`tech reps ${reps.tech}`);return b.length?`Auto-configured: ${b.join(' · ')}`:'Preset applied. Review detected fields below.'}
+function updateSelected(id){$$('.preset-card').forEach(b=>b.classList.toggle('selected',b.dataset.preset===id))}
+function showSummary(p,choices=''){const el=$('#presetSummary');if(!el)return;el.innerHTML=`<div><b>${p.name}</b><span>${p.question}</span><small>${p.outputs}</small><small>${choices}</small></div><button class="primary" id="presetAnalyzeBtn">Run recommended analysis →</button>`;$('#presetAnalyzeBtn').onclick=runAnalysis}
+function recommend(){if(!S.raw?.length)return'daily';const f=fields();if(f.some(x=>/frequency|fraction|proportion/i.test(x)))return'competition';if(f.some(x=>/^dose$|concentration|conc/i.test(x)))return'dose';if(f.some(x=>/generation|evolution.*line/i.test(x)))return'evolution';const g=field(/genotype|strain/i),c=field(/medium|condition|treatment|carbon|drug|temperature/i);if(g&&c&&values(g).length>1&&values(c).length>1)return'matrix';const t=field(/^day$|days|^time$|hour|elapsed/i);if(t){const a=uniq(S.raw.map(r=>Number(r[t])).filter(Number.isFinite)).sort((x,y)=>x-y),d=a.slice(1).map((x,i)=>x-a[i]).filter(x=>x>0),m=d.length?d.sort((x,y)=>x-y)[Math.floor(d.length/2)]:NaN;if(/day/i.test(t)||m>=12||a.length<8)return'daily';return'kinetic'}if(g&&values(g).length>=8)return'screen';return'endpoint'}
 
-function describeChoices(ctrl, reps) {
-  const bits = [];
-  if (S.id.length) bits.push(`analysis unit: ${S.id.join(' + ')}`);
-  if (ctrl.field) bits.push(`control: ${ctrl.field} = ${ctrl.value || '(choose value)'}`);
-  if (reps.bio) bits.push(`biological replicate: ${reps.bio}`);
-  if (reps.tech) bits.push(`technical replicate: ${reps.tech}`);
-  if (S.design.controlStrata?.length) bits.push(`normalize within: ${S.design.controlStrata.join(', ')}`);
-  return bits.length ? `Configured ${bits.join(' · ')}` : 'Preset applied. Review the detected fields below.';
-}
-function updateSelected(id) {
-  $$('.preset-card').forEach(b => b.classList.toggle('selected', b.dataset.preset === id));
-}
-function showSummary(preset, choices='') {
-  const el = $('#presetSummary');
-  if (!el) return;
-  el.innerHTML = `<div><b>${preset.name}</b><span>${preset.bundle}</span><small>${choices}</small></div><button class="primary" id="presetAnalyzeBtn">Run recommended analysis →</button>`;
-  $('#presetAnalyzeBtn').onclick = () => runAnalysis();
-}
-function recommend() {
-  if (!S.raw?.length) return 'daily';
-  const f = fields();
-  if (f.some(x => /frequency|fraction|proportion/i.test(x))) return 'competition';
-  if (f.some(x => /^dose$|concentration|conc/i.test(x))) return 'dose';
-  if (f.some(x => /generation|evolution.*line/i.test(x))) return 'evolution';
-  const genotype = field(/genotype|strain/i);
-  const condition = field(/medium|condition|treatment|carbon|drug|temperature/i);
-  if (genotype && condition && values(genotype).length > 1 && values(condition).length > 1) return 'matrix';
-  const time = field(/^day$|days|time|hour|elapsed/i);
-  if (time) {
-    const t = uniq(S.raw.map(r => Number(r[time])).filter(Number.isFinite)).sort((a,b)=>a-b);
-    const gaps = t.slice(1).map((x,i)=>x-t[i]).filter(x=>x>0);
-    const med = gaps.length ? gaps.sort((a,b)=>a-b)[Math.floor(gaps.length/2)] : NaN;
-    if (/day/i.test(time) || med >= 12 || t.length < 8) return 'daily';
-    return 'kinetic';
-  }
-  if (genotype && values(genotype).length >= 8) return 'screen';
-  return 'endpoint';
-}
-function renderPresets() {
-  const panel = document.querySelector('.step-panel[data-panel="2"]');
-  if (!panel || $('#presetChooser')) return;
-  const head = panel.querySelector('.panel-head');
-  const wrap = document.createElement('div');
-  wrap.id = 'presetChooser';
-  wrap.className = 'preset-section';
-  wrap.innerHTML = `<div class="preset-heading"><div><span class="section-tag">QUICK SETUP</span><h3>What kind of experiment is this?</h3><p>Choose the closest design. YeastFit will configure sensible defaults, then show every assumption for review.</p></div><span class="preset-recommendation" id="presetRecommendation"></span></div><div class="preset-grid">${PRESETS.map(p => `<button type="button" class="preset-card" data-preset="${p.id}"><span class="preset-tag">${p.tag}</span><b>${p.name}</b><small>${p.desc}</small><em>${p.bundle}</em></button>`).join('')}</div><div id="presetSummary" class="preset-summary"><span>Choose a preset, or continue below for manual setup.</span></div>`;
-  head.insertAdjacentElement('afterend', wrap);
-  $$('.preset-card').forEach(b => b.onclick = () => applyPreset(b.dataset.preset));
-  refreshRecommendation();
-}
-function refreshRecommendation() {
-  const id = recommend(), p = PRESETS.find(x => x.id === id), badge = $('#presetRecommendation');
-  if (badge && p) badge.textContent = `Suggested: ${p.name}`;
-  $$('.preset-card').forEach(b => b.classList.toggle('recommended', b.dataset.preset === id));
-}
+function presetCard(p,compact=false){return`<article class="preset-card ${compact?'compact-preset':''}" data-preset="${p.id}"><div class="preset-visual">${schematic(p.id)}</div><div class="preset-copy"><span class="preset-tag">${p.kicker}</span><h4>${p.name}</h4><p>${p.question}</p>${compact?'':`<div class="preset-output"><b>You get</b><span>${p.outputs}</span></div>`}</div><div class="preset-actions"><button class="secondary use-preset" data-use="${p.id}">Use design</button><button class="ghost run-preset-demo" data-demo="${p.id}">${p.id==='manual'?'See example':'Run demo'}</button></div></article>`}
+function bindCards(root=document){root.querySelectorAll('.use-preset').forEach(b=>b.onclick=e=>{e.stopPropagation();applyPreset(b.dataset.use)});root.querySelectorAll('.run-preset-demo').forEach(b=>b.onclick=e=>{e.stopPropagation();loadDemo(b.dataset.demo)});root.querySelectorAll('.preset-card').forEach(c=>c.onclick=e=>{if(!e.target.closest('button'))applyPreset(c.dataset.preset)})}
+function renderPresets(){const panel=document.querySelector('.step-panel[data-panel="2"]');if(!panel||$('#presetChooser'))return;const wrap=document.createElement('div');wrap.id='presetChooser';wrap.className='preset-section';wrap.innerHTML=`<div class="preset-heading"><div><span class="section-tag">CHOOSE BY EXPERIMENT SHAPE</span><h3>Which picture looks like your experiment?</h3><p>Start from the physical design, not a statistical name. Every preset stays editable.</p></div><span class="preset-recommendation" id="presetRecommendation"></span></div><div class="preset-grid">${PRESETS.map(p=>presetCard(p)).join('')}</div><div id="presetSummary" class="preset-summary"><span>Pick the closest experiment picture, or choose Manual / custom.</span></div>`;panel.querySelector('.panel-head').insertAdjacentElement('afterend',wrap);bindCards(wrap);refreshRecommendation()}
+function renderDemoGallery(){const panel=document.querySelector('.step-panel[data-panel="1"]');if(!panel||$('#demoGallery'))return;const g=document.createElement('section');g.id='demoGallery';g.className='demo-gallery';g.innerHTML=`<div class="demo-gallery-head"><div><span class="section-tag">LEARN BY EXAMPLE</span><h3>Try a complete experiment</h3><p>Each demo loads realistic replicate structure, configures the matching design, runs the analysis, and opens the visual report.</p></div><button class="ghost" id="hideDemosBtn">Hide examples</button></div><div class="demo-grid">${PRESETS.map(p=>presetCard(p,true)).join('')}</div>`;panel.querySelector('.panel-head').insertAdjacentElement('afterend',g);bindCards(g);$('#hideDemosBtn').onclick=()=>g.classList.toggle('demo-collapsed')}
+function refreshRecommendation(){const id=recommend(),p=PRESETS.find(x=>x.id===id),badge=$('#presetRecommendation');if(badge&&p)badge.textContent=`Suggested from data: ${p.name}`;$$('.preset-card').forEach(b=>b.classList.toggle('recommended',b.dataset.preset===id))}
 
-renderPresets();
-const navDesign = document.querySelector('.step[data-step="2"]');
-navDesign?.addEventListener('click', () => setTimeout(refreshRecommendation, 0));
-$('#demoBtn')?.addEventListener('click', () => setTimeout(() => { refreshRecommendation(); applyPreset('daily'); }, 80));
-$('#dataFiles')?.addEventListener('change', () => setTimeout(refreshRecommendation, 100));
-$('#parsePasteBtn')?.addEventListener('click', () => setTimeout(refreshRecommendation, 50));
+export function loadDemo(id){const d=makeDemo(id);S.raw=d.rows.map(r=>({...r,__file:`demo_${id}.csv`}));S.meta=[];S.inf=null;S.files=[`demo_${id}.csv`];S.mfiles=[];S.metrics=[];S.adj=[];S.norm=[];S.cmp=[];const fl=$('#fileList');if(fl)fl.innerHTML=`<span class="file-pill">Demo · ${d.title}</span>`;const inf=$('#inferenceBox');if(inf){inf.classList.remove('hidden');inf.innerHTML=`<b>${d.title}</b><br><small>${d.question} Synthetic teaching data generated locally in your browser.</small>`}step(2);design();applyPreset(id);if(id==='manual'){review();runAnalysis()}else runAnalysis();toast(`${d.title} demo analyzed`)}
+
+renderPresets();renderDemoGallery();window.YeastFitPresets={PRESETS,applyPreset,loadDemo,schematic};
+const db=$('#demoBtn');if(db){db.textContent='Demo gallery';db.onclick=()=>{step(1);$('#demoGallery')?.scrollIntoView({behavior:'smooth',block:'start'})}}
+document.querySelector('.step[data-step="2"]')?.addEventListener('click',()=>setTimeout(refreshRecommendation,0));$('#dataFiles')?.addEventListener('change',()=>setTimeout(refreshRecommendation,100));$('#parsePasteBtn')?.addEventListener('click',()=>setTimeout(refreshRecommendation,50));
