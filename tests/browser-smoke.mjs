@@ -66,7 +66,27 @@ for(const id of scenarios){
     assert.ok(!headers.some(h=>h.trim().toLowerCase()==='time'),`${id}: endpoint summaries must not contain meaningless time columns`);
   }
   if(id==='endpoint')assert.equal(Number(overview['Biological-level rows']),16,'endpoint demo should contain 16 biological-level observations');
+  if(id==='manual'){
+    const mode=await page.locator('.analysis-bundle-badge').textContent();
+    assert.equal(mode?.trim().toLowerCase(),'endpoint','manual demo must not inherit a prior kinetic/serial mode');
+    assert.ok(await page.locator('#viz_primary .main-svg').count()>0,'manual endpoint demo should render its primary phenotype view');
+  }
+  if(id==='dose'){
+    assert.equal(await page.locator('#viz_primary').count(),0,'dose response should not pool all doses into a generic endpoint distribution');
+    assert.equal(await page.locator('#viz_rank').count(),0,'dose response should not show a pooled cross-dose ranking');
+    assert.ok(await page.locator('#viz_dose .main-svg').count()>0,'dose response curve should render');
+    assert.ok(await page.locator('#viz_dose_normalized .main-svg').count()>0,'normalized dose-response curve should render');
+    assert.ok(await page.locator('#viz_dose_heatmap .main-svg').count()>0,'dose heatmap should render');
+    assert.ok(await page.locator('#viz_halfdose .main-svg').count()>0,'half-response summary should render');
+  }
+
   if(id==='screen')assert.equal(Number(overview['Biological-level rows']),39,'screen demo should contain 39 biological-level observations');
+  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
+  if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
+${detail}
+DEBUG=${JSON.stringify(debug)}`)}}
+  if(id==='daily'){assert.equal(await page.locator('#viz_serial_auc').count(),1,'daily AUC card should exist');await page.locator('#viz_serial_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_serial_trend_slope').count(),1,'daily slope card should exist');await page.locator('#viz_serial_trend_slope .main-svg').first().waitFor({state:'attached',timeout:8000});}
+  if(id==='kinetic'){assert.equal(await page.locator('#viz_metric_auc').count(),1,'kinetic AUC card should exist');await page.locator('#viz_metric_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_doubling_time').count(),1,'kinetic doubling-time card should exist');await page.locator('#viz_metric_doubling_time .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_lag').count(),1,'kinetic lag card should exist');await page.locator('#viz_metric_lag .main-svg').first().waitFor({state:'attached',timeout:8000});}
   if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
   if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
 ${detail}
