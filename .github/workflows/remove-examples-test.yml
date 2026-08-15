@@ -1,0 +1,50 @@
+name: Validate example-gallery removal
+
+on:
+  push:
+    branches: [remove-redundant-examples]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Unit and syntax checks
+        run: |
+          npm test
+          npm run check
+      - name: Install Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Run full browser regression suite
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/yeastfit-server.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          npm run test:browser
+      - name: Verify example UI is not duplicated
+        run: |
+          node --input-type=module <<'EOF'
+          import assert from 'node:assert/strict';
+          import { chromium } from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage({viewport:{width:1440,height:1000}});
+          await page.goto('http://127.0.0.1:4173',{waitUntil:'networkidle'});
+          await page.waitForFunction(()=>window.YeastFitWorkflowV05&&window.YeastFitPresets);
+          assert.equal(await page.locator('#demoGallery').count(),0,'separate demo gallery must be removed');
+          assert.equal(await page.locator('#demoBtn').count(),0,'top-level examples shortcut must be removed');
+          const ids=['daily','endpoint','screen','matrix','evolution','dose','competition','kinetic','manual'];
+          for(const id of ids){
+            const card=page.locator(`#presetChooser .preset-card[data-preset="${id}"]`);
+            assert.equal(await card.locator('.run-preset-demo').count(),1,`${id}: one contextual demo button`);
+          }
+          assert.equal(await page.locator('#presetChooser .run-preset-demo').count(),9,'exactly one demo action per design');
+          await browser.close();
+          EOF
