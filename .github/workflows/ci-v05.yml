@@ -25,7 +25,9 @@ jobs:
         with:
           node-version: 24
       - name: Apply release patch in working tree
-        run: node scripts/apply-v05.mjs
+        run: |
+          node scripts/apply-v05.mjs
+          node scripts/finalize-v05.mjs
       - name: Unit and scenario tests
         run: npm test
       - name: Syntax checks
