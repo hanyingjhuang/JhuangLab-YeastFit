@@ -15,6 +15,9 @@ fs.writeFileSync('js/dashboard.js',dashboard);
 
 let browserTest=fs.readFileSync('tests/browser-smoke.mjs','utf8');
 browserTest=browserTest.replace("await analyzePreset(inputPage,'daily');assert.ok(window!==undefined);","await analyzePreset(inputPage,'daily');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=4,'TSV daily renders report');");
+const oldWait="async function uploadAndWait(page,files,minRows=1){\n  await page.setInputFiles('#dataFiles',files);\n  await page.waitForFunction(n=>window.YeastFit?.S?.raw?.length>=n,minRows);\n}";
+const newWait="async function uploadAndWait(page,files,minRows=1){\n  const list=Array.isArray(files)?files:[files];\n  const names=list.map(x=>typeof x==='string'?x.split('/').at(-1):x.name);\n  await page.setInputFiles('#dataFiles',files);\n  await page.waitForFunction(({names,minRows})=>window.YeastFit?.S?.raw?.length>=minRows&&window.YeastFit.S.files.length===names.length&&names.every(n=>window.YeastFit.S.files.includes(n)),{names,minRows});\n}";
+if(browserTest.includes(oldWait))browserTest=browserTest.replace(oldWait,newWait);
 fs.writeFileSync('tests/browser-smoke.mjs',browserTest);
 
 const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version='0.5.0';pkg.scripts.check='node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/comprehensive.js && node --check js/app.js && node --check js/demo-catalog.js && node --check js/templates.js && node --check js/presets.js && node --check js/workflow-v05.js && node --check js/dashboard.js && node --check js/advanced.js';pkg.scripts['test:browser']='node tests/browser-smoke.mjs';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n');
