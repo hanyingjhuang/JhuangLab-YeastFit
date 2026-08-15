@@ -1,0 +1,57 @@
+name: Validate YeastFit v0.5 before release
+
+on:
+  push:
+    branches: [v0.5-workflow-redesign]
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout development branch
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Apply release patch in working tree
+        run: node scripts/apply-v05.mjs
+      - name: Unit and scenario tests
+        run: npm test
+      - name: Syntax checks
+        run: npm run check
+      - name: Install browser test runtime
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Run every design in Chromium
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/yeastfit-server.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          npm run test:browser
+      - name: Upload visual validation screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yeastfit-v05-visual-validation
+          path: test-artifacts/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Commit validated setup patch
+        if: success()
+        run: |
+          if git diff --quiet -- index.html package.json README.md; then
+            echo 'Validated branch already contains release patch.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add index.html package.json README.md
+          git commit -m 'Finalize unified setup and validation wiring'
+          git push
