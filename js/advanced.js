@@ -1,7 +1,7 @@
 import { renderVisualDashboard } from './dashboard.js';
 import { compareGroupsToControl, normalizeToControls } from './analysis.js';
 import { median } from './stats.js';
-import { groupRows, summarizeBy, controlNormalize, replicateDiagnostics, robustScreen, competitionSelection, halfResponseDose, factorialLandscape, twoByTwoInteraction } from './comprehensive.js';
+import { groupRows, summarizeBy, controlNormalize, matchedControlComparisons, replicateDiagnostics, robustScreen, competitionSelection, halfResponseDose, factorialLandscape, twoByTwoInteraction } from './comprehensive.js';
 
 const api = window.YeastFit;
 if (!api) throw new Error('YeastFit core API is unavailable');
@@ -52,6 +52,22 @@ function biologicalKeyFields(rows, includeTime=true) {
   return uniq(candidate).filter(f=>f!==S.design.techRepField&&has(rows,f));
 }
 function fieldByName(rows,re){return fields(rows).find(f=>re.test(f))||'';}
+function reportStrata(strata=[]){return uniq(strata.filter(f=>!/(^|_)(plate|batch|run|experiment)(_|$)/i.test(f)));}
+function collapseMetricTable(rows){
+  if(!rows?.length||!S.design.techRepField||!has(rows,S.design.techRepField))return rows||[];
+  const keys=biologicalKeyFields(rows,false);
+  if(!keys.length)return rows;
+  const numeric=fields(rows).filter(f=>!keys.includes(f)&&f!==S.design.techRepField&&f!=='source_row'&&rows.some(r=>Number.isFinite(+r[f])));
+  const out=[];
+  for(const g of groupRows(rows,keys).values()){
+    const r={...Object.fromEntries(keys.map(k=>[k,g[0][k]??'']))};
+    for(const f of numeric){const v=g.map(x=>+x[f]).filter(Number.isFinite);if(v.length)r[f]=median(v);}
+    const flags=uniq(g.flatMap(x=>String(x.qc_flags||'').split(/[;,|]/).map(y=>y.trim()).filter(Boolean)));
+    if(flags.length)r.qc_flags=flags.join('; ');
+    r.technical_n=g.length;out.push(r);
+  }
+  return out;
+}
 function collapseTechnical(rows,valueField,includeTime=true) {
   if (!rows?.length || !S.design.techRepField || !has(rows,S.design.techRepField)) return rows||[];
   const keys=biologicalKeyFields(rows,includeTime);
@@ -76,12 +92,14 @@ function filteredTests(rows,metric,group,cfg,strata=cfg.strata){
 function aggregateRanking(rows,metric,group,cfg){
   if(!rows.length||!group)return[];
   const scored=robustScreen(rows,{metric,controlField:cfg.controlField,controlValue:cfg.controlValue,strata:cfg.strata,lowerIsDefect:true});
-  const keys=uniq([group,...cfg.strata,cfg.controlField].filter(Boolean));
+  const displayStrata=reportStrata(cfg.strata).filter(f=>uniq(scored.map(r=>r[f])).length>1);
+  const keys=uniq([group,...displayStrata,cfg.controlField].filter(Boolean));
   const out=[];
   for(const g of groupRows(scored,keys).values()){
     const rel=g.map(r=>+r.relative_fitness).filter(Number.isFinite),z=g.map(r=>+r.robust_z).filter(Number.isFinite);
     const base=Object.fromEntries(keys.map(k=>[k,g[0][k]??'']));
-    out.push({...base,biological_n:g.length,relative_fitness:rel.length?median(rel):NaN,mean_relative_fitness:rel.length?rel.reduce((a,b)=>a+b,0)/rel.length:NaN,median_robust_z:z.length?median(z):NaN,candidate_flag:z.length&&Math.abs(median(z))>=2?'candidate':''});
+    const report_label=[String(g[0][group]??''),...displayStrata.map(f=>String(g[0][f]??''))].filter(Boolean).join(' · ');
+    out.push({...base,report_label,biological_n:g.length,relative_fitness:rel.length?median(rel):NaN,mean_relative_fitness:rel.length?rel.reduce((a,b)=>a+b,0)/rel.length:NaN,median_robust_z:z.length?median(z):NaN,candidate_flag:z.length&&Math.abs(median(z))>=2?'candidate':''});
   }
   out.sort((a,b)=>(Number.isFinite(a.relative_fitness)?a.relative_fitness:Infinity)-(Number.isFinite(b.relative_fitness)?b.relative_fitness:Infinity));
   return out.map((r,i)=>({...r,rank:i+1}));
@@ -94,17 +112,18 @@ function buildOverview() {
 
 function comprehensiveData() {
   const mode=S.design.analysisModeResolved||'endpoint',cfg=controlConfig(),group=preferredGroup(),rawPts=pointRows(),metric=metricForMode();
-  const pts=collapseTechnical(rawPts,'value',true),metrics=metric?collapseTechnical(S.metrics,metric,false):S.metrics;
-  const out={};
-  const hasTime=pts.some(r=>Number.isFinite(+r.time));
-  const pointStrata=uniq([...cfg.strata,hasTime?'time':''].filter(Boolean));
-  const pointGroupFields=uniq([group,...pointStrata].filter(Boolean));
+  const pts=collapseTechnical(rawPts,'value',true),metrics=collapseMetricTable(S.metrics);
+  const out={},hasTime=pts.some(r=>Number.isFinite(+r.time)),summaryStrata=reportStrata(cfg.strata);
+  const pointNormStrata=uniq([...cfg.strata,hasTime?'time':''].filter(Boolean));
+  const pointTestStrata=uniq([...summaryStrata,hasTime?'time':''].filter(Boolean));
+  const pointGroupFields=uniq([group,...pointTestStrata].filter(Boolean));
   out.timepointSummary=pts.length?summarizeBy(pts,pointGroupFields,'value'):[];
-  out.normalizedPoints=pts.length&&cfg.controlField?controlNormalize(pts,'value',{...cfg,strata:pointStrata}):[];
-  out.timepointTests=pts.length&&group?filteredTests(pts,'value',group,cfg,pointStrata):[];
-  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:hasTime?'time':'',groupingFields:uniq([group,...cfg.strata].filter(Boolean)),cvWarn:0.15}):[];
-  out.metricSummary=metric&&group?summarizeBy(metrics,uniq([group,...cfg.strata].filter(Boolean)),metric):[];
-  out.metricTests=metric&&group?filteredTests(metrics,metric,group,cfg,cfg.strata):[];
+  out.normalizedPoints=pts.length&&cfg.controlField?controlNormalize(pts,'value',{...cfg,strata:pointNormStrata}):[];
+  out.timepointTests=out.normalizedPoints.length&&group?matchedControlComparisons(out.normalizedPoints,{groupField:group,controlField:cfg.controlField,controlValue:cfg.controlValue,strata:pointTestStrata}):[];
+  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:hasTime?'time':'',groupingFields:uniq([group,...summaryStrata].filter(Boolean)),cvWarn:0.15}):[];
+  out.metricSummary=metric&&group?summarizeBy(metrics,uniq([group,...summaryStrata].filter(Boolean)),metric):[];
+  out.normalizedMetrics=metric&&cfg.controlField?controlNormalize(metrics,metric,cfg):[];
+  out.metricTests=metric&&group&&out.normalizedMetrics.length?matchedControlComparisons(out.normalizedMetrics,{groupField:group,controlField:cfg.controlField,controlValue:cfg.controlValue,strata:summaryStrata}):[];
   out.ranking=metric&&group&&cfg.controlField?aggregateRanking(metrics,metric,group,cfg):[];
   const f=(S.factors||[]).filter(x=>fields(pts.length?pts:metrics).includes(x));
   if(f.length>=2){const source=pts.length?pts:metrics,value=pts.length?'value':metric;out.factorial=factorialLandscape(source,f[0],f[1],value);const ii=twoByTwoInteraction(source,f[0],f[1],value);out.interaction=ii?[ii]:[];}else{out.factorial=[];out.interaction=[];}
@@ -137,13 +156,13 @@ function installSafeComparison(){
     const m=$('#comparisonMetric')?.value,g=$('#comparisonGroup')?.value,cf=$('#comparisonControlField')?.value,cv=$('#comparisonControlValue')?.value,cfg={controlField:cf,controlValue:cv,strata:S.design.controlStrata||[]};
     if(!m||!g||!cf)return api.toast('Choose metric, group, and control');
     if(m==='timepoint_value'){
-      const rows=collapseTechnical(pointRows(),'value',true),strata=uniq([...cfg.strata,'time']);
-      S.norm=normalizeToControls(rows,'value',{...cfg,strata});S.cmp=filteredTests(rows,'value',g,cfg,strata);
+      const rows=collapseTechnical(pointRows(),'value',true),hasTime=rows.some(r=>Number.isFinite(+r.time)),normStrata=uniq([...cfg.strata,hasTime?'time':''].filter(Boolean)),testStrata=uniq([...reportStrata(cfg.strata),hasTime?'time':''].filter(Boolean));
+      S.norm=normalizeToControls(rows,'value',{...cfg,strata:normStrata});S.cmp=filteredTests(S.norm,'value_relative',g,cfg,testStrata);
       $('#comparisonTable').innerHTML=tableHtml(S.cmp,300);
       if(window.Plotly){const times=uniq(S.norm.map(r=>+r.time).filter(Number.isFinite)).sort((a,b)=>a-b),labs=uniq(S.norm.map(r=>r[g])),tr=labs.map(l=>({type:'scatter',mode:'lines+markers',name:String(l),x:times,y:times.map(t=>{const v=S.norm.filter(r=>r[g]===l&&+r.time===t).map(r=>+r.value_relative).filter(Number.isFinite);return v.length?median(v):NaN})}));Plotly.react('comparisonPlot',tr,{margin:{l:58,r:20,t:15,b:48},paper_bgcolor:'white',plot_bgcolor:'white',xaxis:{title:`Time (${S.design.timeUnit||'units'})`,gridcolor:'#eee'},yaxis:{title:'Relative to contemporaneous control',gridcolor:'#eee'},legend:{orientation:'h',y:-.18}},{responsive:true,displaylogo:false});}
       api.recipe();return api.toast(`${S.cmp.length} biological-level timepoint comparisons calculated`);
     }
-    const rows=collapseTechnical(S.metrics,m,false);S.norm=normalizeToControls(rows,m,cfg);S.cmp=filteredTests(rows,m,g,cfg,cfg.strata);$('#comparisonTable').innerHTML=tableHtml(S.cmp,200);
+    const rows=collapseMetricTable(S.metrics);S.norm=normalizeToControls(rows,m,cfg);S.cmp=filteredTests(S.norm,`${m}_relative`,g,cfg,reportStrata(cfg.strata));$('#comparisonTable').innerHTML=tableHtml(S.cmp,200);
     if(window.Plotly){const rel=`${m}_relative`,labs=uniq(S.norm.map(r=>r[g])),tr=labs.map(l=>({type:'box',name:String(l),y:S.norm.filter(r=>r[g]===l).map(r=>r[rel]).filter(Number.isFinite),boxpoints:'all',jitter:.28,pointpos:0}));Plotly.react('comparisonPlot',tr,{margin:{l:58,r:20,t:15,b:48},paper_bgcolor:'white',plot_bgcolor:'white',xaxis:{title:g},yaxis:{title:`Relative ${m}`,gridcolor:'#eee'},showlegend:false},{responsive:true,displaylogo:false});}
     api.recipe();api.toast(`${S.cmp.length} biological-level comparisons calculated`);
   };
@@ -151,8 +170,8 @@ function installSafeComparison(){
 
 function render() {
   const root=$('#comprehensiveResults');if(!root||!S.metrics?.length)return;
-  tables={};const data=comprehensiveData(),mode=S.design.analysisModeResolved||'endpoint',group=preferredGroup(),metric=metricForMode(),preset=S.design.presetName||'Automatic / custom';
-  root.innerHTML=`<div class="comprehensive-head"><div><span class="section-tag">COMPREHENSIVE ANALYSIS</span><h3>${esc(preset)}</h3><p>YeastFit automatically runs the analyses supported by the experimental structure. Unsupported modules are marked not applicable rather than forced.</p></div><span class="analysis-bundle-badge">${mode}</span></div>${buildOverview()}<div id="visualDashboard" class="visual-dashboard"></div><div class="analysis-tabs"><button class="analysis-tab active" data-tab="core">Core summaries</button><button class="analysis-tab" data-tab="controls">Controls & statistics</button><button class="analysis-tab" data-tab="qc">Replicates & QC</button><button class="analysis-tab" data-tab="screen">Ranking</button><button class="analysis-tab" data-tab="special">Specialized</button></div><div class="analysis-tabpane active" data-pane="core">${section('timepoints','Timepoint summaries','Biological-level mean, median, SD, SEM, 95% CI, CV, range, and n for each relevant group and timepoint.',data.timepointSummary)}${section('metrics','Per-group integrated metrics',`Biological-level summaries of ${esc(metric||'the primary metric')} across experimental groups.`,data.metricSummary)}</div><div class="analysis-tabpane" data-pane="controls"><div class="advanced-plot-card"><h4>Control-normalized trajectories</h4><p>Each timepoint is normalized to the contemporaneous control within the selected strata.</p><div id="advancedNormalizedPlot" class="plot compact-plot"></div></div>${section('normalized','Normalized biological observations','Ratio, difference, percent of control, and log2 ratio are retained for every biological-level observation.',data.normalizedPoints)}${section('timeTests','Per-timepoint control tests','Welch tests, effect sizes, and BH-adjusted q values at the biological-replicate level.',data.timepointTests)}${section('metricTests','Integrated-metric control tests',`Biological-level control comparisons using ${esc(metric||'the selected metric')}.`,data.metricTests)}</div><div class="analysis-tabpane" data-pane="qc">${section('replicates','Technical replicate diagnostics','Technical-replicate CV is calculated within biological sample/timepoint when the metadata define technical replicates. CV > 0.15 is flagged by default.',data.replicates)}<div class="analysis-guidance"><b>Experimental unit</b><span>Technical replicates support QC and are collapsed before inferential comparisons. Biological replicates remain the independent units when that field is available.</span></div></div><div class="analysis-tabpane" data-pane="screen"><div class="advanced-plot-card"><h4>Ranked relative phenotype</h4><p>Ranking is aggregated across biological replicates and is useful for screens and candidate prioritization.</p><div id="advancedRankingPlot" class="plot compact-plot"></div></div>${section('ranking','Robust ranking','Groups are normalized to controls within strata. Median robust Z and relative phenotype are reported; candidate flags are prioritization aids, not definitive hits.',data.ranking)}</div><div class="analysis-tabpane" data-pane="special">${section('factorial','Factorial landscape','Descriptive biological-level cell summaries for the first two experimental factors.',data.factorial)}${section('interaction','2 × 2 interaction contrast','When both factors have exactly two levels, a difference-in-differences interaction contrast is reported. It is descriptive, not a substitute for a design-specific mixed model.',data.interaction)}${section('dose','Dose-response summary','For quantitative dose fields, an observed-range half-response dose is interpolated when the response crosses the midpoint.',data.dose)}${section('competition','Competition selection proxy','For frequency experiments, the slope of logit(frequency) versus time is reported as a selection-coefficient proxy.',data.competition)}</div>`;
+  tables={};const data=comprehensiveData(),mode=S.design.analysisModeResolved||'endpoint',group=preferredGroup(),metric=metricForMode(),preset=S.design.presetName||'Automatic / custom',hasTime=data.inferencePoints.some(r=>Number.isFinite(+r.time));if(location.hostname==='127.0.0.1')window.__YEASTFIT_TEST_DEBUG={design:{...S.design},factors:[...(S.factors||[])],group,metric,inferenceMetrics:data.inferenceMetrics.map(r=>({genotype:r.genotype,condition:r.condition,plate:r.plate,biological_rep:r.biological_rep,endpoint:r.endpoint})),normalizedMetrics:(data.normalizedMetrics||[]).map(r=>({genotype:r.genotype,condition:r.condition,plate:r.plate,biological_rep:r.biological_rep,endpoint:r.endpoint,relative_to_control:r.relative_to_control,log2_ratio:r.log2_ratio})),metricTests:data.metricTests};
+  root.innerHTML=`<div class="comprehensive-head"><div><span class="section-tag">COMPREHENSIVE ANALYSIS</span><h3>${esc(preset)}</h3><p>YeastFit automatically runs the analyses supported by the experimental structure. Unsupported modules are marked not applicable rather than forced.</p></div><span class="analysis-bundle-badge">${mode}</span></div>${buildOverview()}<div id="visualDashboard" class="visual-dashboard"></div><div class="analysis-tabs"><button class="analysis-tab active" data-tab="core">Core summaries</button><button class="analysis-tab" data-tab="controls">Controls & statistics</button><button class="analysis-tab" data-tab="qc">Replicates & QC</button><button class="analysis-tab" data-tab="screen">Ranking</button><button class="analysis-tab" data-tab="special">Specialized</button></div><div class="analysis-tabpane active" data-pane="core">${section('timepoints',hasTime?'Timepoint summaries':'Observation summaries',hasTime?'Biological-level mean, median, SD, SEM, 95% CI, CV, range, and n for each relevant group and sampled timepoint.':'Biological-level mean, median, SD, SEM, 95% CI, CV, range, and n for each relevant group.',data.timepointSummary)}${section('metrics','Per-group integrated metrics',`Biological-level summaries of ${esc(metric||'the primary metric')} across experimental groups.`,data.metricSummary)}</div><div class="analysis-tabpane" data-pane="controls"><div class="advanced-plot-card"><h4>Control-normalized trajectories</h4><p>Each timepoint is normalized to the contemporaneous control within the selected strata.</p><div id="advancedNormalizedPlot" class="plot compact-plot"></div></div>${section('normalized','Normalized biological observations','Ratio, difference, percent of control, and log2 ratio are retained for every biological-level observation.',data.normalizedPoints)}${section('timeTests','Per-timepoint control tests','Welch tests, effect sizes, and BH-adjusted q values at the biological-replicate level.',data.timepointTests)}${section('metricTests','Integrated-metric control tests',`Biological-level control comparisons using ${esc(metric||'the selected metric')}.`,data.metricTests)}</div><div class="analysis-tabpane" data-pane="qc">${section('replicates','Technical replicate diagnostics','Technical-replicate CV is calculated within biological sample/timepoint when the metadata define technical replicates. CV > 0.15 is flagged by default.',data.replicates)}<div class="analysis-guidance"><b>Experimental unit</b><span>Technical replicates support QC and are collapsed before inferential comparisons. Biological replicates remain the independent units when that field is available.</span></div></div><div class="analysis-tabpane" data-pane="screen"><div class="advanced-plot-card"><h4>Ranked relative phenotype</h4><p>Ranking is aggregated across biological replicates and is useful for screens and candidate prioritization.</p><div id="advancedRankingPlot" class="plot compact-plot"></div></div>${section('ranking','Robust ranking','Groups are normalized to controls within strata. Median robust Z and relative phenotype are reported; candidate flags are prioritization aids, not definitive hits.',data.ranking)}</div><div class="analysis-tabpane" data-pane="special">${section('factorial','Factorial landscape','Descriptive biological-level cell summaries for the first two experimental factors.',data.factorial)}${section('interaction','2 × 2 interaction contrast','When both factors have exactly two levels, a difference-in-differences interaction contrast is reported. It is descriptive, not a substitute for a design-specific mixed model.',data.interaction)}${section('dose','Dose-response summary','For quantitative dose fields, an observed-range half-response dose is interpolated when the response crosses the midpoint.',data.dose)}${section('competition','Competition selection proxy','For frequency experiments, the slope of logit(frequency) versus time is reported as a selection-coefficient proxy.',data.competition)}</div>`;
   root.querySelectorAll('.analysis-tab').forEach(b=>b.onclick=()=>{root.querySelectorAll('.analysis-tab').forEach(x=>x.classList.toggle('active',x===b));root.querySelectorAll('.analysis-tabpane').forEach(x=>x.classList.toggle('active',x.dataset.pane===b.dataset.tab));if(b.dataset.tab==='controls'||b.dataset.tab==='screen')setTimeout(()=>renderPlots(data),0)});
   root.querySelectorAll('.advanced-download').forEach(b=>b.onclick=()=>download(`YeastFit_${b.dataset.table}.csv`,tables[b.dataset.table]||[]));renderVisualDashboard($('#visualDashboard'),{S,data,group,metric});renderPlots(data);
 }
