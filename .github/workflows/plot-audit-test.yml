@@ -10,41 +10,47 @@ permissions:
 jobs:
   validate:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
           node-version: 24
-      - name: Apply final plot validity fixes
-        run: node scripts/plot-cleanup-fixes.mjs
+      - name: Update permanent browser regression expectations
+        run: node scripts/update-browser-smoke-selective.mjs
       - name: Unit and syntax checks
         run: |
           npm test
           npm run check
+          node --check tests/browser-smoke.mjs
+          node --check tests/plot-cleanup-smoke.mjs
       - name: Install Chromium
         run: |
           npm install --no-save --package-lock=false playwright
           npx playwright install --with-deps chromium
-      - name: Run all nine visual scenarios
+      - name: Run permanent import and analysis browser suite
         run: |
           python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/yeastfit-server.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
-          node tests/plot-cleanup-smoke.mjs
+          npm run test:browser
+      - name: Run focused visual quality suite
+        run: node tests/plot-cleanup-smoke.mjs
       - name: Upload visual audit screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: yeastfit-selective-visual-audit
-          path: test-artifacts/plot-cleanup/
+          path: test-artifacts/
           if-no-files-found: warn
           retention-days: 3
-      - name: Commit validated fixes
+      - name: Commit validated permanent tests
         if: success()
         run: |
-          if git diff --quiet -- js/dashboard.js js/advanced.js; then exit 0; fi
+          if git diff --quiet -- tests/browser-smoke.mjs; then exit 0; fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add js/dashboard.js js/advanced.js
-          git commit -m 'Finalize selective visual reports and factor-aware QC'
+          git add tests/browser-smoke.mjs
+          git commit -m 'Align permanent browser tests with selective reports'
           git push
