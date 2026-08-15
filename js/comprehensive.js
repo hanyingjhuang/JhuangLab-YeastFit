@@ -1,4 +1,4 @@
-import { mean, median, sd } from './stats.js';
+import { mean, median, sd, studentTCdf, benjaminiHochberg } from './stats.js';
 
 const finite = a => a.map(Number).filter(Number.isFinite);
 const keyOf = (r, fields) => fields.map(f => `${f}=${r[f] ?? ''}`).join('|');
@@ -58,6 +58,64 @@ export function controlNormalize(rows, valueField = 'value', options = {}) {
     });
   }
   return out;
+}
+
+function oneSampleStats(values, nullValue = 0) {
+  const v = finite(values);
+  if (v.length < 2) return { n: v.length, mean: mean(v), sd: sd(v), t: NaN, df: NaN, p: NaN, hedges_g: NaN };
+  const m = mean(v), s = sd(v), df = v.length - 1;
+  if (!(s > 0)) {
+    if (m === nullValue) return { n: v.length, mean: m, sd: s, t: 0, df, p: 1, hedges_g: 0 };
+    return { n: v.length, mean: m, sd: s, t: m > nullValue ? Infinity : -Infinity, df, p: 0, hedges_g: m > nullValue ? Infinity : -Infinity };
+  }
+  const t = (m - nullValue) / (s / Math.sqrt(v.length));
+  const p = 2 * (1 - studentTCdf(Math.abs(t), df));
+  const d = (m - nullValue) / s;
+  const j = df > 1 ? 1 - 3 / (4 * df - 1) : 1;
+  return { n: v.length, mean: m, sd: s, t, df, p, hedges_g: d * j };
+}
+
+export function matchedControlComparisons(normalizedRows, options = {}) {
+  const {
+    groupField,
+    controlField = 'role',
+    controlValue = 'control',
+    strata = []
+  } = options;
+  if (!normalizedRows?.length || !groupField || !controlField) return [];
+  const results = [];
+  for (const [stratum, bucket] of groupRows(normalizedRows, strata)) {
+    const labels = [...new Set(bucket.map(r => r[groupField]).filter(v => v !== '' && v != null))]
+      .filter(label => !bucket.some(r => r[groupField] === label && String(r[controlField] ?? '').toLowerCase() === String(controlValue).toLowerCase()));
+    for (const label of labels) {
+      const rows = bucket.filter(r => r[groupField] === label && String(r[controlField] ?? '').toLowerCase() !== String(controlValue).toLowerCase());
+      const logValues = finite(rows.map(r => r.log2_ratio));
+      const ratioValues = finite(rows.map(r => r.relative_to_control));
+      const useLog = logValues.length >= 2;
+      const values = useLog ? logValues : ratioValues;
+      const nullValue = useLog ? 0 : 1;
+      if (values.length < 2) continue;
+      const test = oneSampleStats(values, nullValue);
+      const ratioCenter = useLog ? 2 ** test.mean : test.mean;
+      results.push({
+        stratum,
+        group: label,
+        n: test.n,
+        control_n: null,
+        test_scale: useLog ? 'log2_ratio' : 'relative_to_control',
+        mean: test.mean,
+        control_mean: nullValue,
+        difference: test.mean - nullValue,
+        ratio: ratioCenter,
+        hedges_g: test.hedges_g,
+        t: test.t,
+        df: test.df,
+        p: test.p
+      });
+    }
+  }
+  const q = benjaminiHochberg(results.map(r => r.p));
+  return results.map((r, i) => ({ ...r, q: q[i] }));
 }
 
 export function replicateDiagnostics(rows, options = {}) {

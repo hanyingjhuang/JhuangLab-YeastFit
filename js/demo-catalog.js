@@ -24,9 +24,13 @@ function screen(){
 function matrix(){
   const rows=[];let i=0,genos=['WT','mutA','mutB','mutC'],conds=['YPD','YPGly','YPGly + Fe','YPD + BPS'];
   const ge={WT:1,mutA:.77,mutB:.91,mutC:1.08},ce={'YPD':1,'YPGly':.82,'YPGly + Fe':.9,'YPD + BPS':.68};
+  const bioAmp={WT:.012,mutA:.029,mutB:.021,mutC:.025};
   for(const genotype of genos)for(const condition of conds)for(let bio=1;bio<=3;bio++)for(let tech=1;tech<=2;tech++){
     let interaction=1;if(genotype==='mutA'&&condition==='YPGly + Fe')interaction=1.28;if(genotype==='mutB'&&condition==='YPD + BPS')interaction=.72;
-    rows.push({value:r(ge[genotype]*ce[condition]*interaction*techNoise(bio,tech)),well:well(i++),sample:`${genotype}_${condition}_B${bio}_T${tech}`,genotype,condition,role:genotype==='WT'?'control':'sample',biological_rep:bio,technical_rep:tech,plate:`Matrix_${bio}`});
+    const conditionBias=condition==='YPGly'?0.004:condition==='YPD + BPS'?-0.003:0;
+    const biological=1+(bio-2)*(bioAmp[genotype]+conditionBias);
+    const technical=tech===2?1.008:.994;
+    rows.push({value:r(ge[genotype]*ce[condition]*interaction*biological*technical),well:well(i++),sample:`${genotype}_${condition}_B${bio}_T${tech}`,genotype,condition,role:genotype==='WT'?'control':'sample',biological_rep:bio,technical_rep:tech,plate:`Matrix_${bio}`});
   }
   return{rows,preset:'matrix',title:'Genotype × condition',question:'Does the phenotype depend on both genotype and environment?'};
 }

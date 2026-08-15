@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { summarizeBy, controlNormalize, replicateDiagnostics, robustScreen, competitionSelection, halfResponseDose, twoByTwoInteraction } from '../js/comprehensive.js';
+import { summarizeBy, controlNormalize, matchedControlComparisons, replicateDiagnostics, robustScreen, competitionSelection, halfResponseDose, twoByTwoInteraction } from '../js/comprehensive.js';
 
 test('summary returns replicate statistics',()=>{
   const out=summarizeBy([{g:'A',value:1},{g:'A',value:2},{g:'A',value:3}],['g']);
@@ -41,4 +41,36 @@ test('2x2 interaction returns difference in differences',()=>{
   const rows=[{a:'A0',b:'B0',value:1},{a:'A1',b:'B0',value:2},{a:'A0',b:'B1',value:1},{a:'A1',b:'B1',value:4}];
   const out=twoByTwoInteraction(rows,'a','b');
   assert.equal(out.interaction_difference_in_differences,2);
+});
+
+
+test('matched-control inference uses biological log2 ratios',()=>{
+  const rows=[
+    {condition:'A',genotype:'WT',relative_to_control:1,log2_ratio:0},
+    {condition:'A',genotype:'WT',relative_to_control:1,log2_ratio:0},
+    {condition:'A',genotype:'WT',relative_to_control:1,log2_ratio:0},
+    {condition:'A',genotype:'mut',relative_to_control:.72,log2_ratio:Math.log2(.72)},
+    {condition:'A',genotype:'mut',relative_to_control:.76,log2_ratio:Math.log2(.76)},
+    {condition:'A',genotype:'mut',relative_to_control:.8,log2_ratio:Math.log2(.8)}
+  ];
+  const out=matchedControlComparisons(rows,{groupField:'genotype',controlField:'genotype',controlValue:'WT',strata:['condition']});
+  assert.equal(out.length,1);
+  assert.equal(out[0].group,'mut');
+  assert.equal(out[0].n,3);
+  assert.ok(Number.isFinite(out[0].hedges_g));
+  assert.ok(Number.isFinite(out[0].p));
+  assert.ok(Number.isFinite(out[0].q));
+  assert.ok(out[0].ratio<1);
+});
+
+
+test('matrix demo produces matched-control comparisons after biological collapse',async()=>{
+  const { makeDemo }=await import('../js/demo-catalog.js');
+  const raw=makeDemo('matrix').rows;
+  const collapsed=summarizeBy(raw,['genotype','condition','biological_rep','plate'],'value').map(r=>({genotype:r.genotype,condition:r.condition,biological_rep:r.biological_rep,plate:r.plate,endpoint:r.median}));
+  const normalized=controlNormalize(collapsed,'endpoint',{controlField:'genotype',controlValue:'WT',strata:['condition','plate']});
+  const out=matchedControlComparisons(normalized,{groupField:'genotype',controlField:'genotype',controlValue:'WT',strata:['condition']});
+  assert.equal(out.length,12);
+  assert.ok(out.every(r=>r.n===3));
+  assert.ok(out.every(r=>Number.isFinite(r.hedges_g)&&Number.isFinite(r.p)&&Number.isFinite(r.q)));
 });
