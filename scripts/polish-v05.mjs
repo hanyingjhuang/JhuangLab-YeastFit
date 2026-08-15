@@ -1,9 +1,11 @@
 import fs from 'node:fs';
 
 let presets=fs.readFileSync('js/presets.js','utf8');
-const demoNeedle="step(2);design();applyPreset(id);if(id==='manual'){review();runAnalysis()}else runAnalysis();";
+const demoOriginal="step(2);design();applyPreset(id);if(id==='manual'){review();runAnalysis()}else runAnalysis();";
+const demoPrior="step(2);design();if(id==='manual'){S.design.seriesMode='auto';setValue('#seriesMode','auto')}applyPreset(id);if(id==='manual'){review();runAnalysis()}else runAnalysis();";
 const demoReplacement="step(2);design();if(id==='manual'){applyPreset('endpoint');S.design.seriesMode='auto';setValue('#seriesMode','auto')}applyPreset(id);if(id==='manual'){review();runAnalysis()}else runAnalysis();";
-if(presets.includes(demoNeedle))presets=presets.replace(demoNeedle,demoReplacement);
+if(presets.includes(demoOriginal))presets=presets.replace(demoOriginal,demoReplacement);
+if(presets.includes(demoPrior))presets=presets.replace(demoPrior,demoReplacement);
 if(!presets.includes("if(id==='manual'){applyPreset('endpoint');S.design.seriesMode='auto';setValue('#seriesMode','auto')}applyPreset(id)"))throw new Error('Manual demo reset patch failed');
 fs.writeFileSync('js/presets.js',presets);
 
