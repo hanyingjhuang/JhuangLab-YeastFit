@@ -78,9 +78,17 @@ for(const id of scenarios){
     assert.ok(await page.locator('#viz_dose_normalized .main-svg').count()>0,'normalized dose-response curve should render');
     assert.ok(await page.locator('#viz_dose_heatmap .main-svg').count()>0,'dose heatmap should render');
     assert.ok(await page.locator('#viz_halfdose .main-svg').count()>0,'half-response summary should render');
+    const doseHeaders=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();
+    assert.ok(doseHeaders.some(h=>h.trim().toLowerCase()==='dose'),'dose summaries must retain the dose factor');
   }
 
   if(id==='screen')assert.equal(Number(overview['Biological-level rows']),39,'screen demo should contain 39 biological-level observations');
+  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
+  if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
+${detail}
+DEBUG=${JSON.stringify(debug)}`)}}
+  if(id==='daily'){assert.equal(await page.locator('#viz_serial_auc').count(),1,'daily AUC card should exist');await page.locator('#viz_serial_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_serial_trend_slope').count(),1,'daily slope card should exist');await page.locator('#viz_serial_trend_slope .main-svg').first().waitFor({state:'attached',timeout:8000});}
+  if(id==='kinetic'){assert.equal(await page.locator('#viz_metric_auc').count(),1,'kinetic AUC card should exist');await page.locator('#viz_metric_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_doubling_time').count(),1,'kinetic doubling-time card should exist');await page.locator('#viz_metric_doubling_time .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_lag').count(),1,'kinetic lag card should exist');await page.locator('#viz_metric_lag .main-svg').first().waitFor({state:'attached',timeout:8000});}
   if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
   if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
 ${detail}
