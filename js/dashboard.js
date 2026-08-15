@@ -39,16 +39,16 @@ function normalizedDistribution(rows,group,metric,cfg){
   if(!cfg.controlField)return[];const n=controlNormalize(rows,metric,cfg);return boxOrDot(n,group,'relative_to_control');
 }
 function effectTrace(tests){
-  const a=(tests||[]).filter(r=>Number.isFinite(+r.hedges_g)&&Number.isFinite(+r.q));if(!a.length)return[];
-  const label=r=>[r.group,String(r.stratum||'').replaceAll('|',' · ')].filter(Boolean).join(' · '),top=[...a].sort((x,y)=>(+x.q)-(+y.q)||Math.abs(+y.hedges_g)-Math.abs(+x.hedges_g)).slice(0,5),keep=new Set(top);
-  return [{type:'scatter',mode:'markers+text',x:a.map(r=>+r.hedges_g),y:a.map(r=>-Math.log10(Math.max(+r.q,1e-12))),text:a.map(r=>keep.has(r)?label(r):''),textposition:'top center',textfont:{size:9,color:'#536058'},marker:{size:a.map(r=>keep.has(r)?10:7),color:a.map(r=>+r.q<.05?'#a85f47':'#6d8b64'),opacity:.8},customdata:a.map(r=>label(r)),hovertemplate:'%{customdata}<br>Hedges g=%{x:.3g}<br>q=%{customdata}<extra></extra>'}];
+  const a=(tests||[]).filter(r=>Number.isFinite(+r.q)&&Number.isFinite(+r.ratio)&&+r.ratio>0);if(!a.length)return[];
+  const label=r=>[r.group,String(r.stratum||'').replaceAll('|',' · ')].filter(Boolean).join(' · '),top=[...a].sort((x,y)=>(+x.q)-(+y.q)||Math.abs(Math.log2(+y.ratio))-Math.abs(Math.log2(+x.ratio))).slice(0,5),keep=new Set(top);
+  return [{type:'scatter',mode:'markers+text',x:a.map(r=>Math.log2(+r.ratio)),y:a.map(r=>-Math.log10(Math.max(+r.q,1e-12))),text:a.map(r=>keep.has(r)?label(r):''),textposition:'top center',textfont:{size:9,color:'#536058'},marker:{size:a.map(r=>keep.has(r)?10:7),color:a.map(r=>+r.q<.05?'#a85f47':'#6d8b64'),opacity:.8},customdata:a.map(r=>[label(r),+r.q,+r.hedges_g]),hovertemplate:'%{customdata[0]}<br>log2 relative=%{x:.3g}<br>q=%{customdata[1]:.3g}<br>Hedges g=%{customdata[2]:.3g}<extra></extra>'}];
 }
 function rankTrace(rows,group){
   const a=(rows||[]).filter(r=>Number.isFinite(+r.relative_fitness)).sort((x,y)=>x.relative_fitness-y.relative_fitness).slice(0,30);if(!a.length)return[];
   return [{type:'bar',orientation:'h',x:a.map(r=>+r.relative_fitness),y:a.map(r=>String(r.report_label??r[group]??r.rank)),marker:{color:a.map(r=>+r.relative_fitness<1?'#a85f47':'#6d8b64')},customdata:a.map(r=>r.median_robust_z),hovertemplate:'%{y}<br>relative=%{x:.3g}<br>robust Z=%{customdata:.3g}<extra></extra>'}];
 }
 function timeHeatmap(rows,group){
-  const times=uniq(rows.map(r=>+r.time).filter(Number.isFinite)).sort((a,b)=>a-b),ls=levels(rows,group);if(times.length<2||ls.length<3||ls.length>24)return[];
+  const times=uniq(rows.map(r=>+r.time).filter(Number.isFinite)).sort((a,b)=>a-b),ls=levels(rows,group);if(times.length<2||ls.length<5||ls.length>24)return[];
   return [{type:'heatmap',x:times,y:ls,z:ls.map(g=>times.map(t=>med(rows.filter(r=>r[group]===g&&+r.time===t).map(r=>r.relative_to_control)))),zmid:1,colorscale:HEAT,colorbar:{title:'Rel.',thickness:12},hovertemplate:`${group}=%{y}<br>time=%{x}<br>relative=%{z:.3g}<extra></extra>`}];
 }
 function factorFields(rows,S,group){return (S.factors||[]).filter(f=>f&&f!==group&&rows.some(r=>Object.prototype.hasOwnProperty.call(r,f))&&levels(rows,f).length>1)}
@@ -87,8 +87,8 @@ function correlationTrace(rows){
   return [{type:'heatmap',x:ms.map(metricName),y:ms.map(metricName),z:ms.map(a=>ms.map(b=>corr(a,b))),zmin:-1,zmax:1,zmid:0,colorscale:HEAT,colorbar:{title:'r',thickness:12},hovertemplate:'%{y} × %{x}<br>r=%{z:.3f}<extra></extra>'}];
 }
 function metricPlot(root,metrics,group,m,id=`viz_metric_${m}`){const tr=boxOrDot(metrics,group,m);if(!tr.length)return false;const lo=base(metricName(m));lo.xaxis.title=tr[0]?.type==='scatter'?'':group;lo.showlegend=false;return addCard(root,id,metricName(m),`Biological-level ${metricName(m).toLowerCase()} across ${group||'groups'}.`,tr,lo)}
-function qcSection(grid,data,metrics,group){
-  const cv=cvTrace(data.replicates),flags=flaggedQcTrace(metrics),n=unequalNTrace(metrics,group);if(!cv.length&&!flags.length&&!n.length)return;
+function qcSection(grid,data,metrics,group,showCurveFlags=false){
+  const cv=cvTrace(data.replicates),flags=showCurveFlags?flaggedQcTrace(metrics):[],n=unequalNTrace(metrics,group);if(!cv.length&&!flags.length&&!n.length)return;
   divider(grid,'Quality & replicate checks');
   if(cv.length){const lo=base('Count');lo.xaxis.title='Technical replicate CV';lo.showlegend=false;addCard(grid,'viz_cv','Technical replicate precision','Distribution of within-biological-replicate technical CV.',cv,lo,{compact:true})}
   if(flags.length){const lo=base('');lo.xaxis.title='Flagged units';lo.showlegend=false;addCard(grid,'viz_qc','QC flags','Only observed QC problems are shown; an all-clear chart is intentionally omitted.',flags,lo,{compact:true})}
@@ -104,51 +104,51 @@ export function renderVisualDashboard(root,{S,data,group,metric}){
     const lo=base('Measurement');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Observed trajectory','Median biological measurement at each sampled timepoint.',lineTraces(points,group),lo,{wide:true});
     if(normPoints.length){const nlo=base('Relative to control');nlo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_normalized_time','Control-normalized trajectory','Same time course after contemporaneous control normalization.',normalizedLineTraces(normPoints,group),nlo,{wide:true});const ht=timeHeatmap(normPoints,group);if(ht.length){const hlo=base('');hlo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;hlo.yaxis.title=group;addCard(grid,'viz_time_heatmap','Time × group fitness map','Compact view of relative phenotype across many groups and timepoints.',ht,hlo,{wide:true})}}
     divider(grid,'Longitudinal summaries');metricPlot(grid,metrics,group,'endpoint');metricPlot(grid,metrics,group,'auc','viz_serial_auc');metricPlot(grid,metrics,group,'trend_slope','viz_serial_trend_slope');
-    const ef=effectTrace(tests);if(ef.length){const elo=base('-log10(q)');elo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Effect size & FDR','Magnitude and multiplicity-adjusted evidence for control comparisons.',ef,elo,{wide:true})}
-    qcSection(grid,data,metrics,group);return;
+    const ef=effectTrace(tests);if(ef.length){const elo=base('-log10(q)');elo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Relative effect & FDR','Magnitude and multiplicity-adjusted evidence for control comparisons.',ef,elo,{wide:true})}
+    qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='endpoint'||preset==='manual'){
     divider(grid,'Phenotype & evidence');if(primary)metricPlot(grid,metrics,group,primary,'viz_primary');
     if(cfg.controlField&&primary){const tr=normalizedDistribution(metrics,group,primary,cfg);if(tr.length){const lo=base('Relative to control');lo.showlegend=false;addCard(grid,'viz_normalized','Control-normalized phenotype','Biological-level phenotype relative to the selected control.',tr,lo)}}
-    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Effect size & FDR','Control comparisons summarized by effect size and adjusted evidence.',ef,lo,{wide:true})}
+    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Relative effect & FDR','Control comparisons summarized by effect size and adjusted evidence.',ef,lo,{wide:true})}
     if(preset==='manual'&&factors.length>=1&&group){const tr=factorHeatmap(points.length?points:metrics,group,factors[0],points.length?'value':primary,'Median');if(tr.length){const lo=base('');lo.xaxis.title=factors[0];lo.yaxis.title=group;addCard(grid,'viz_factorial','Factorial landscape','Median phenotype across the first two detected experimental factors.',tr,lo,{wide:true})}}
-    qcSection(grid,data,metrics,group);return;
+    qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='screen'){
     divider(grid,'Screen prioritization');const rk=rankTrace(data.ranking,group);if(rk.length){const lo=base('');lo.xaxis.title='Relative phenotype';lo.showlegend=false;addCard(grid,'viz_rank','Ranked relative phenotype','Candidates ordered by control-normalized biological phenotype.',rk,lo,{wide:true})}
-    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Effect size & FDR','Separates large effects from statistically supported effects.',ef,lo,{wide:true})}
-    qcSection(grid,data,metrics,group);return;
+    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Relative effect & FDR','Separates large effects from statistically supported effects.',ef,lo,{wide:true})}
+    qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='matrix'){
     divider(grid,'Genotype × condition');const condition=factors.find(f=>/condition|medium|media|treatment|drug|carbon|stress|environment/i.test(f))||factors[0];
     const raw=factorHeatmap(points.length?points:metrics,group,condition,points.length?'value':primary,'Median');if(raw.length){const lo=base('');lo.xaxis.title=condition;lo.yaxis.title=group;addCard(grid,'viz_factorial','Phenotype landscape','Raw biological phenotype across genotype and condition.',raw,lo,{wide:true})}
     if(normPoints.length&&condition){const rel=factorHeatmap(normPoints,group,condition,'relative_to_control','Relative');if(rel.length){const lo=base('');lo.xaxis.title=condition;lo.yaxis.title=group;addCard(grid,'viz_matrix_relative','Control-normalized landscape','Condition-aware relative phenotype without pooling across environments.',rel,lo,{wide:true})}}
-    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Condition-specific effects','Effect size and FDR across genotype-by-condition comparisons.',ef,lo,{wide:true})}
-    qcSection(grid,data,metrics,group);return;
+    const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Condition-specific effects','Effect size and FDR across genotype-by-condition comparisons.',ef,lo,{wide:true})}
+    qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='evolution'){
     divider(grid,'Evolution through time');const lo=base('Measurement');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Evolution trajectories','Median phenotype through passages or generations.',lineTraces(points,group),lo,{wide:true});
     if(normPoints.length){const nlo=base('Relative to control');nlo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_normalized_time','Relative trajectory','Trajectory relative to the contemporaneous reference.',normalizedLineTraces(normPoints,group),nlo,{wide:true})}
-    divider(grid,'Adaptation summaries');metricPlot(grid,metrics,group,'endpoint');metricPlot(grid,metrics,group,'trend_slope');const ef=effectTrace(tests);if(ef.length){const elo=base('-log10(q)');elo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Effect size & FDR','Integrated evidence for evolved-line differences.',ef,elo,{wide:true})}qcSection(grid,data,metrics,group);return;
+    divider(grid,'Adaptation summaries');metricPlot(grid,metrics,group,'endpoint');metricPlot(grid,metrics,group,'trend_slope');const ef=effectTrace(tests);if(ef.length){const elo=base('-log10(q)');elo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Relative effect & FDR','Integrated evidence for evolved-line differences.',ef,elo,{wide:true})}qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='dose'){
     const dose=(S.factors||[]).find(x=>/dose|concentration|conc/i.test(x));divider(grid,'Dose dependence');if(dose){const source=points.length?points:metrics,lo=base('Response');lo.xaxis.title=dose;addCard(grid,'viz_dose','Dose-response profile','Median biological response at each observed concentration.',doseTrace(source,dose,group),lo,{wide:true});const nlo=base('Relative to lowest dose');nlo.xaxis.title=dose;addCard(grid,'viz_dose_normalized','Normalized dose-response','Within-group response relative to the lowest observed dose.',doseTrace(source,dose,group,'value',true),nlo,{wide:true});if(levels(source,group).length>=3){const ht=factorHeatmap(source,group,dose,'value','Response');if(ht.length){const hlo=base('');hlo.xaxis.title=dose;hlo.yaxis.title=group;addCard(grid,'viz_dose_heatmap','Genotype × dose map','Compact response landscape when several groups are compared.',ht,hlo,{wide:true})}}}
-    const hd=halfDoseTrace(data.dose);if(hd.length){const lo=base('');lo.xaxis.title='Half-response dose';lo.showlegend=false;addCard(grid,'viz_halfdose','Half-response estimates','Observed-range midpoint estimates; descriptive rather than a fitted EC50.',hd,lo)}qcSection(grid,data,metrics,group);return;
+    const hd=halfDoseTrace(data.dose);if(hd.length){const lo=base('');lo.xaxis.title='Half-response dose';lo.showlegend=false;addCard(grid,'viz_halfdose','Half-response estimates','Observed-range midpoint estimates; descriptive rather than a fitted EC50.',hd,lo)}qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='competition'){
-    divider(grid,'Competition dynamics');const lo=base('Focal frequency');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Frequency trajectory','Observed focal-strain frequency through time.',lineTraces(points,group),lo,{wide:true});const lg=competitionLogit(points,group);if(lg.length){const llo=base('logit(frequency)');llo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_competition_logit','Logit-frequency trajectory','Linearized frequency view used for the selection-coefficient proxy.',lg,llo,{wide:true})}const st=selectionTrace(data.competition);if(st.length){const slo=base('');slo.xaxis.title='Selection-coefficient proxy';slo.showlegend=false;addCard(grid,'viz_selection','Selection proxy by replicate','Slope of logit frequency versus time for each biological trajectory.',st,slo,{wide:true})}qcSection(grid,data,metrics,group);return;
+    divider(grid,'Competition dynamics');const lo=base('Focal frequency');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Frequency trajectory','Observed focal-strain frequency through time.',lineTraces(points,group),lo,{wide:true});const lg=competitionLogit(points,group);if(lg.length){const llo=base('logit(frequency)');llo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_competition_logit','Logit-frequency trajectory','Linearized frequency view used for the selection-coefficient proxy.',lg,llo,{wide:true})}const st=selectionTrace(data.competition);if(st.length){const slo=base('');slo.xaxis.title='Selection-coefficient proxy';slo.showlegend=false;addCard(grid,'viz_selection','Selection proxy by replicate','Slope of logit frequency versus time for each biological trajectory.',st,slo,{wide:true})}qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
   if(preset==='kinetic'){
     divider(grid,'Growth kinetics');const lo=base('Measurement');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Growth trajectories','Median biological growth curves across groups.',lineTraces(points,group),lo,{wide:true});
-    divider(grid,'Kinetic parameters');['mu_max','doubling_time','lag','auc'].forEach(m=>metricPlot(grid,metrics,group,m));const cr=correlationTrace(metrics);if(cr.length){const clo=base('');clo.xaxis.title='Metric';clo.yaxis.title='Metric';addCard(grid,'viz_metric_correlations','Metric relationships','Correlation among distinct kinetic summaries when enough biological observations are available.',cr,clo,{wide:true})}qcSection(grid,data,metrics,group);return;
+    divider(grid,'Kinetic parameters');['mu_max','doubling_time','lag','auc'].forEach(m=>metricPlot(grid,metrics,group,m));const cr=correlationTrace(metrics);if(cr.length){const clo=base('');clo.xaxis.title='Metric';clo.yaxis.title='Metric';addCard(grid,'viz_metric_correlations','Metric relationships','Correlation among distinct kinetic summaries when enough biological observations are available.',cr,clo,{wide:true})}qcSection(grid,data,metrics,group,preset==='kinetic');return;
   }
 
-  divider(grid,'Phenotype summary');if(hasTime&&group){const lo=base('Measurement');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Observed trajectory','Biological-level measurements through time.',lineTraces(points,group),lo,{wide:true})}if(primary)metricPlot(grid,metrics,group,primary,'viz_primary');const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='Standardized effect';addCard(grid,'viz_effects','Effect size & FDR','Control comparisons with adjusted evidence.',ef,lo,{wide:true})}qcSection(grid,data,metrics,group);
+  divider(grid,'Phenotype summary');if(hasTime&&group){const lo=base('Measurement');lo.xaxis.title=`Time (${S.design.timeUnit||'units'})`;addCard(grid,'viz_observed','Observed trajectory','Biological-level measurements through time.',lineTraces(points,group),lo,{wide:true})}if(primary)metricPlot(grid,metrics,group,primary,'viz_primary');const ef=effectTrace(tests);if(ef.length){const lo=base('-log10(q)');lo.xaxis.title='log2 relative phenotype';addCard(grid,'viz_effects','Relative effect & FDR','Control comparisons with adjusted evidence.',ef,lo,{wide:true})}qcSection(grid,data,metrics,group,preset==='kinetic');
 }
