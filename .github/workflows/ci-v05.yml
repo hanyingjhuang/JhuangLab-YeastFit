@@ -4,6 +4,10 @@ on:
   push:
     branches: [v0.5-workflow-redesign]
 
+concurrency:
+  group: yeastfit-v05-validation
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
