@@ -7,6 +7,12 @@ if(!html.includes('styles-v05.css'))html=replaceOnce(html,'  <link rel="styleshe
 if(!html.includes('workflow-v05.js'))html=replaceOnce(html,'  <script type="module" src="js/presets.js"></script>','  <script type="module" src="js/presets.js"></script>\n  <script type="module" src="js/workflow-v05.js"></script>');
 fs.writeFileSync('index.html',html);
 
+let dashboard=fs.readFileSync('js/dashboard.js','utf8');
+const bad="z:ls.map(g=>times.map(t=>med(rows.filter(r=>r[group]===g&&+r.time===t).map(r=>r.relative_to_control))),zmid:1";
+const good="z:ls.map(g=>times.map(t=>med(rows.filter(r=>r[group]===g&&+r.time===t).map(r=>r.relative_to_control)))),zmid:1";
+if(dashboard.includes(bad))dashboard=dashboard.replace(bad,good);
+fs.writeFileSync('js/dashboard.js',dashboard);
+
 const pkg=JSON.parse(fs.readFileSync('package.json','utf8'));pkg.version='0.5.0';pkg.scripts.check='node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/comprehensive.js && node --check js/app.js && node --check js/demo-catalog.js && node --check js/templates.js && node --check js/presets.js && node --check js/workflow-v05.js && node --check js/dashboard.js && node --check js/advanced.js';pkg.scripts['test:browser']='node tests/browser-smoke.mjs';fs.writeFileSync('package.json',JSON.stringify(pkg,null,2)+'\n');
 
 let readme=fs.readFileSync('README.md','utf8');
