@@ -30,7 +30,10 @@ function mergeDesignIntoSetup(){const setup=$('.step-panel[data-panel="1"]'),des
   Object.entries(labels).forEach(([step,[title,sub]],i)=>{const n=$(`.step[data-step="${step}"]`);if(!n)return;n.querySelector('span').textContent=String(i+1);n.querySelector('b').textContent=title;n.querySelector('small').textContent=sub});
 }
 
-function compactDemoGallery(){const g=$('#demoGallery');if(!g)return;g.classList.add('demo-collapsed','setup-demo-gallery');const btn=$('#hideDemosBtn');if(btn){btn.textContent='Show examples';btn.onclick=()=>{g.classList.toggle('demo-collapsed');btn.textContent=g.classList.contains('demo-collapsed')?'Show examples':'Hide examples'}}const setup=$('.step-panel[data-panel="1"]'),chooser=$('#presetChooser');if(setup&&chooser)setup.insertBefore(g,chooser)}
+function removeRedundantExamples(){
+  $('#demoGallery')?.remove();
+  $('#demoBtn')?.remove();
+}
 
 function organizeResults(){const panel=$('.step-panel[data-panel="4"]');if(!panel)return;
   let details=$('#rawDiagnostics');
@@ -41,8 +44,6 @@ function organizeResults(){const panel=$('.step-panel[data-panel="4"]');if(!pane
 
 function compactResultsLabels(){const panel=$('.step-panel[data-panel="4"]');if(!panel)return;const head=panel.querySelector('.panel-head');if(head){head.querySelector('.section-tag').textContent='RESULTS';head.querySelector('h2').textContent='Comprehensive results';head.querySelector('p').textContent='Start with the visual report. Detailed tables and raw per-unit diagnostics remain available below for audit and export.'}}
 
-function improveTopActions(){const b=$('#demoBtn');if(!b)return;b.textContent='Examples';b.onclick=()=>{window.YeastFit?.step?.(1);const g=$('#demoGallery');g?.classList.remove('demo-collapsed');const hb=$('#hideDemosBtn');if(hb)hb.textContent='Hide examples';g?.scrollIntoView({behavior:'smooth',block:'start'})}}
-
-function initialize(){mergeDesignIntoSetup();compactDemoGallery();organizeResults();compactResultsLabels();improveTopActions()}
+function initialize(){mergeDesignIntoSetup();removeRedundantExamples();organizeResults();compactResultsLabels()}
 initialize();
 window.YeastFitWorkflowV05={initialize,TEMPLATES};
