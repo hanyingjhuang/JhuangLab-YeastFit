@@ -22,8 +22,17 @@ function mergeDesignIntoSetup(){const setup=$('.step-panel[data-panel="1"]'),des
 
 function compactDemoGallery(){const g=$('#demoGallery');if(!g)return;g.classList.add('demo-collapsed','setup-demo-gallery');const btn=$('#hideDemosBtn');if(btn){btn.textContent='Show examples';btn.onclick=()=>{g.classList.toggle('demo-collapsed');btn.textContent=g.classList.contains('demo-collapsed')?'Show examples':'Hide examples'}}const setup=$('.step-panel[data-panel="1"]'),chooser=$('#presetChooser');if(setup&&chooser)setup.insertBefore(g,chooser)}
 
+function organizeResults(){const panel=$('.step-panel[data-panel="4"]');if(!panel)return;
+  let details=$('#rawDiagnostics');
+  if(!details){details=document.createElement('details');details.id='rawDiagnostics';details.className='raw-diagnostics';details.innerHTML='<summary><div><b>Raw measurements & per-unit details</b><small>Optional audit view: adjusted measurements, per-unit metrics, and QC details.</small></div><span>Show details</span></summary><div class="raw-diagnostics-body"><p class="muted">The visual report above uses biological-level experimental units whenever replicate metadata are available. This section preserves lower-level observations for audit and troubleshooting.</p></div>';const body=details.querySelector('.raw-diagnostics-body');const nodes=[$('#metricCards'),$('#growthPlot')?.closest('.chart-card'),$('#metricsTable')?.closest('.card-grid.two')].filter(Boolean);nodes.forEach(n=>body.appendChild(n));panel.insertBefore(details,panel.querySelector('.footer-actions'));details.addEventListener('toggle',()=>{const label=details.querySelector('summary>span');if(label)label.textContent=details.open?'Hide details':'Show details'})}
+  const promote=()=>{const report=$('#comprehensiveResults'),raw=$('#rawDiagnostics');if(report&&raw&&report.parentElement===panel&&report.nextElementSibling!==raw)panel.insertBefore(report,raw)};
+  promote();new MutationObserver(promote).observe(panel,{childList:true});
+}
+
+function compactResultsLabels(){const panel=$('.step-panel[data-panel="4"]');if(!panel)return;const head=panel.querySelector('.panel-head');if(head){head.querySelector('.section-tag').textContent='RESULTS';head.querySelector('h2').textContent='Comprehensive results';head.querySelector('p').textContent='Start with the visual report. Detailed tables and raw per-unit diagnostics remain available below for audit and export.'}}
+
 function improveTopActions(){const b=$('#demoBtn');if(!b)return;b.textContent='Examples';b.onclick=()=>{window.YeastFit?.step?.(1);const g=$('#demoGallery');g?.classList.remove('demo-collapsed');const hb=$('#hideDemosBtn');if(hb)hb.textContent='Hide examples';g?.scrollIntoView({behavior:'smooth',block:'start'})}}
 
-function initialize(){mergeDesignIntoSetup();compactDemoGallery();improveTopActions()}
+function initialize(){mergeDesignIntoSetup();compactDemoGallery();organizeResults();compactResultsLabels();improveTopActions()}
 initialize();
 window.YeastFitWorkflowV05={initialize,TEMPLATES};
