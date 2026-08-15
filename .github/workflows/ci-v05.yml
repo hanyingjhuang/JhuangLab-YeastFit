@@ -28,6 +28,7 @@ jobs:
         run: |
           node scripts/apply-v05.mjs
           node scripts/stat-v05.mjs
+          node scripts/polish-v05.mjs
           node scripts/finalize-v05.mjs
       - name: Unit and scenario tests
         run: npm test
@@ -53,12 +54,12 @@ jobs:
       - name: Commit validated setup patch
         if: success()
         run: |
-          if git diff --quiet -- index.html package.json README.md js/dashboard.js js/advanced.js tests/browser-smoke.mjs tests/comprehensive.test.mjs; then
+          if git diff --quiet -- index.html package.json README.md js/dashboard.js js/advanced.js js/presets.js tests/browser-smoke.mjs tests/comprehensive.test.mjs; then
             echo 'Validated branch already contains release patch.'
             exit 0
           fi
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add index.html package.json README.md js/dashboard.js js/advanced.js tests/browser-smoke.mjs tests/comprehensive.test.mjs
-          git commit -m 'Finalize matched-control inference and visual report'
+          git add index.html package.json README.md js/dashboard.js js/advanced.js js/presets.js tests/browser-smoke.mjs tests/comprehensive.test.mjs
+          git commit -m 'Finalize v0.5 manual mode and dose report polish'
           git push
