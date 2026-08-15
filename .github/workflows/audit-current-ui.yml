@@ -1,0 +1,56 @@
+name: Audit current YeastFit UI
+
+on:
+  push:
+    branches: [audit-current-ui]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Unit and syntax checks
+        run: |
+          npm test
+          npm run check
+      - name: Install Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright
+          npx playwright install --with-deps chromium
+      - name: Run browser scenarios and screenshots
+        run: |
+          python3 -m http.server 4173 --bind 127.0.0.1 >/tmp/yeastfit-server.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:4173/ >/dev/null && break; sleep 1; done
+          npm run test:browser
+      - name: Capture setup desktop and mobile
+        run: |
+          node --input-type=module <<'EOF'
+          import { chromium } from 'playwright';
+          import { mkdir } from 'node:fs/promises';
+          await mkdir('test-artifacts',{recursive:true});
+          const browser=await chromium.launch({headless:true});
+          const context=await browser.newContext({viewport:{width:1440,height:1000}});
+          const page=await context.newPage();
+          await page.goto('http://127.0.0.1:4173',{waitUntil:'networkidle'});
+          await page.waitForFunction(()=>window.YeastFitWorkflowV05&&window.YeastFitPresets);
+          await page.screenshot({path:'test-artifacts/setup-current-desktop.png',fullPage:true});
+          await page.setViewportSize({width:390,height:844});
+          await page.waitForTimeout(200);
+          await page.screenshot({path:'test-artifacts/setup-current-mobile.png',fullPage:true});
+          await browser.close();
+          EOF
+      - name: Upload audit screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: yeastfit-current-ui-audit
+          path: test-artifacts/
+          if-no-files-found: error
+          retention-days: 3
