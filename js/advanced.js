@@ -123,7 +123,7 @@ function comprehensiveData() {
   out.timepointSummary=pts.length?summarizeBy(pts,pointGroupFields,'value'):[];
   out.normalizedPoints=pts.length&&cfg.controlField?controlNormalize(pts,'value',{...cfg,strata:pointNormStrata}):[];
   out.timepointTests=out.normalizedPoints.length&&group?matchedControlComparisons(out.normalizedPoints,{groupField:group,controlField:cfg.controlField,controlValue:cfg.controlValue,strata:pointTestStrata}):[];
-  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:hasTime?'time':'',groupingFields:uniq([group,...summaryStrata].filter(Boolean)),cvWarn:0.15}):[];
+  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:hasTime?'time':'',groupingFields:uniq([group,...summaryStrata,...pointReportFactors].filter(Boolean)),cvWarn:0.15}):[];
   out.metricSummary=metric&&group?summarizeBy(metrics,uniq([group,...summaryStrata,...metricReportFactors].filter(Boolean)),metric):[];
   out.normalizedMetrics=metric&&cfg.controlField?controlNormalize(metrics,metric,cfg):[];
   out.metricTests=metric&&group&&out.normalizedMetrics.length?matchedControlComparisons(out.normalizedMetrics,{groupField:group,controlField:cfg.controlField,controlValue:cfg.controlValue,strata:summaryStrata}):[];
