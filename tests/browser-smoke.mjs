@@ -57,6 +57,16 @@ for(const id of scenarios){
   assert.ok(await page.locator('#rawDiagnostics').count()===1,`${id}: raw diagnostics section exists`);
   assert.equal(await page.locator('#rawDiagnostics').evaluate(el=>el.open),false,`${id}: raw diagnostics collapsed by default`);
   assert.equal(await page.evaluate(()=>{const p=document.querySelector('.step-panel[data-panel="4"]'),a=document.querySelector('#comprehensiveResults'),b=document.querySelector('#rawDiagnostics'),c=[...p.children];return c.indexOf(a)<c.indexOf(b)}),true,`${id}: visual report must precede raw diagnostics`);
+  const overview=await page.evaluate(()=>Object.fromEntries([...document.querySelectorAll('.analysis-overview-grid>div')].map(x=>[x.querySelector('small')?.textContent?.trim(),x.querySelector('b')?.textContent?.trim()])));
+  if(await page.evaluate(()=>Boolean(window.YeastFit.S.design.techRepField))){
+    assert.ok(Number(overview['Biological-level rows'])<Number(overview['Measurements']),`${id}: technical replicates must collapse before biological inference`);
+  }
+  if(['endpoint','screen'].includes(id)){
+    const headers=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();
+    assert.ok(!headers.some(h=>h.trim().toLowerCase()==='time'),`${id}: endpoint summaries must not contain meaningless time columns`);
+  }
+  if(id==='endpoint')assert.equal(Number(overview['Biological-level rows']),16,'endpoint demo should contain 16 biological-level observations');
+  if(id==='screen')assert.equal(Number(overview['Biological-level rows']),39,'screen demo should contain 39 biological-level observations');
   const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
   assert.ok(overflow<=6,`${id}: horizontal overflow ${overflow}px`);
   await page.screenshot({path:`${out}/${id}-desktop.png`,fullPage:true});

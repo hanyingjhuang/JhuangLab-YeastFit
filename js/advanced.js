@@ -46,7 +46,9 @@ function controlsCount(rows,cfg) { return rows.filter(r=>String(r[cfg.controlFie
 function has(rows,f){return !!f&&rows.some(r=>Object.prototype.hasOwnProperty.call(r,f));}
 
 function biologicalKeyFields(rows, includeTime=true) {
-  const candidate=[...(S.factors||[]),S.design.controlField,...(S.design.controlStrata||[]),S.design.bioRepField,S.design.batchField,fieldByName(rows,/^sample$|sample_id|culture_id/i),includeTime?'time':''].filter(Boolean);
+  const sampleFallback=S.design.bioRepField?'':fieldByName(rows,/^sample$|sample_id|culture_id/i);
+  const timeKey=includeTime&&rows.some(r=>Number.isFinite(+r.time))?'time':'';
+  const candidate=[...(S.factors||[]),S.design.controlField,...(S.design.controlStrata||[]),S.design.bioRepField,S.design.batchField,sampleFallback,timeKey].filter(Boolean);
   return uniq(candidate).filter(f=>f!==S.design.techRepField&&has(rows,f));
 }
 function fieldByName(rows,re){return fields(rows).find(f=>re.test(f))||'';}
@@ -94,11 +96,13 @@ function comprehensiveData() {
   const mode=S.design.analysisModeResolved||'endpoint',cfg=controlConfig(),group=preferredGroup(),rawPts=pointRows(),metric=metricForMode();
   const pts=collapseTechnical(rawPts,'value',true),metrics=metric?collapseTechnical(S.metrics,metric,false):S.metrics;
   const out={};
-  const pointGroupFields=uniq([group,...cfg.strata,'time'].filter(Boolean));
+  const hasTime=pts.some(r=>Number.isFinite(+r.time));
+  const pointStrata=uniq([...cfg.strata,hasTime?'time':''].filter(Boolean));
+  const pointGroupFields=uniq([group,...pointStrata].filter(Boolean));
   out.timepointSummary=pts.length?summarizeBy(pts,pointGroupFields,'value'):[];
-  out.normalizedPoints=pts.length&&cfg.controlField?controlNormalize(pts,'value',{...cfg,strata:uniq([...cfg.strata,'time'])}):[];
-  out.timepointTests=pts.length&&group?filteredTests(pts,'value',group,cfg,uniq([...cfg.strata,'time'])):[];
-  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:'time',groupingFields:uniq([group,...cfg.strata].filter(Boolean)),cvWarn:0.15}):[];
+  out.normalizedPoints=pts.length&&cfg.controlField?controlNormalize(pts,'value',{...cfg,strata:pointStrata}):[];
+  out.timepointTests=pts.length&&group?filteredTests(pts,'value',group,cfg,pointStrata):[];
+  out.replicates=rawPts.length?replicateDiagnostics(rawPts,{technicalField:S.design.techRepField,biologicalField:S.design.bioRepField,timeField:hasTime?'time':'',groupingFields:uniq([group,...cfg.strata].filter(Boolean)),cvWarn:0.15}):[];
   out.metricSummary=metric&&group?summarizeBy(metrics,uniq([group,...cfg.strata].filter(Boolean)),metric):[];
   out.metricTests=metric&&group?filteredTests(metrics,metric,group,cfg,cfg.strata):[];
   out.ranking=metric&&group&&cfg.controlField?aggregateRanking(metrics,metric,group,cfg):[];
