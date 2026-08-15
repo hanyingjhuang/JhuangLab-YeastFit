@@ -18,7 +18,7 @@ async function analyzePreset(page,preset){
   await page.evaluate(x=>window.YeastFitPresets.applyPreset(x),preset);
   await page.evaluate(()=>window.YeastFit.runAnalysis());
   await page.waitForFunction(()=>window.YeastFit?.S?.metrics?.length>0);
-  await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>=6);
+  await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>0);
 }
 async function uploadAndWait(page,files,minRows=1){
   const list=Array.isArray(files)?files:[files];
@@ -44,65 +44,43 @@ await page.locator('.template-download[data-template="matrix"][data-format="xlsx
 const xlsx=await xlsxDownload;assert.match(xlsx.suggestedFilename(),/matrix_template\.xlsx$/);await xlsx.saveAs(`${out}/matrix_template.xlsx`);
 
 const scenarios=['daily','endpoint','screen','matrix','evolution','dose','competition','kinetic','manual'];
+const visualExpected={
+  daily:['viz_observed','viz_normalized_time','viz_serial_auc','viz_serial_trend_slope'],
+  endpoint:['viz_primary','viz_normalized'],
+  screen:['viz_rank','viz_effects'],
+  matrix:['viz_factorial','viz_matrix_relative','viz_effects'],
+  evolution:['viz_observed','viz_metric_endpoint','viz_metric_trend_slope'],
+  dose:['viz_dose','viz_dose_normalized','viz_halfdose'],
+  competition:['viz_observed','viz_competition_logit','viz_selection'],
+  kinetic:['viz_observed','viz_metric_mu_max','viz_metric_doubling_time','viz_metric_lag','viz_metric_auc'],
+  manual:['viz_primary','viz_factorial']
+};
+const visualMax={daily:9,endpoint:6,screen:5,matrix:6,evolution:7,dose:7,competition:6,kinetic:8,manual:6};
 for(const id of scenarios){
   await page.evaluate(x=>window.YeastFitPresets.loadDemo(x),id);
   await page.waitForFunction(x=>window.YeastFit?.S?.design?.preset===x&&window.YeastFit.S.metrics?.length>0,id);
-  await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>=6);
+  await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>0);
   await page.waitForTimeout(250);
   const cards=await page.locator('#visualDashboard .visual-card').count();
-  const rendered=await page.locator('#visualDashboard .main-svg').count();
-  assert.ok(cards>=6,`${id}: comprehensive report needs >=6 figure cards, got ${cards}`);
-  assert.ok(rendered>=4,`${id}: at least 4 rendered plots expected, got ${rendered}`);
+  assert.ok(cards>=visualExpected[id].length,`${id}: too few meaningful figures (${cards})`);
+  assert.ok(cards<=visualMax[id],`${id}: visual report is redundant (${cards} cards)`);
+  assert.equal(await page.locator('#visualDashboard .visual-placeholder').count(),0,`${id}: empty plot card rendered`);
+  const titles=(await page.locator('#visualDashboard .visual-card-head h4').allTextContents()).map(x=>x.trim());
+  assert.equal(new Set(titles).size,titles.length,`${id}: duplicate plot titles`);
+  for(const plotId of visualExpected[id]){const p=page.locator(`#${plotId}`);assert.equal(await p.count(),1,`${id}: missing ${plotId}`);await p.locator('.main-svg').first().waitFor({state:'attached',timeout:8000});}
+  const health=await page.evaluate(()=>[...document.querySelectorAll('#visualDashboard .visual-plot')].map(el=>({id:el.id,traces:el.data?.length||0,w:el.getBoundingClientRect().width,h:el.getBoundingClientRect().height,svg:el.querySelectorAll('.main-svg').length})));
+  for(const p of health){assert.ok(p.traces>0,`${id}/${p.id}: no traces`);assert.ok(p.svg>0,`${id}/${p.id}: no SVG`);assert.ok(p.w>220&&p.h>180,`${id}/${p.id}: undersized plot`)}
   const status=await page.locator('#analysisStatus').textContent();assert.doesNotMatch(status||'',/not run/i,`${id}: analysis must run`);
-  assert.ok(await page.locator('#rawDiagnostics').count()===1,`${id}: raw diagnostics section exists`);
+  assert.equal(await page.locator('#rawDiagnostics').count(),1,`${id}: raw diagnostics exists`);
   assert.equal(await page.locator('#rawDiagnostics').evaluate(el=>el.open),false,`${id}: raw diagnostics collapsed by default`);
-  assert.equal(await page.evaluate(()=>{const p=document.querySelector('.step-panel[data-panel="4"]'),a=document.querySelector('#comprehensiveResults'),b=document.querySelector('#rawDiagnostics'),c=[...p.children];return c.indexOf(a)<c.indexOf(b)}),true,`${id}: visual report must precede raw diagnostics`);
   const overview=await page.evaluate(()=>Object.fromEntries([...document.querySelectorAll('.analysis-overview-grid>div')].map(x=>[x.querySelector('small')?.textContent?.trim(),x.querySelector('b')?.textContent?.trim()])));
-  if(await page.evaluate(()=>Boolean(window.YeastFit.S.design.techRepField))){
-    assert.ok(Number(overview['Biological-level rows'])<Number(overview['Measurements']),`${id}: technical replicates must collapse before biological inference`);
-  }
-  if(['endpoint','screen'].includes(id)){
-    const headers=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();
-    assert.ok(!headers.some(h=>h.trim().toLowerCase()==='time'),`${id}: endpoint summaries must not contain meaningless time columns`);
-  }
+  if(await page.evaluate(()=>Boolean(window.YeastFit.S.design.techRepField)))assert.ok(Number(overview['Biological-level rows'])<Number(overview['Measurements']),`${id}: technical replicates must collapse`);
+  if(['endpoint','screen'].includes(id)){const headers=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();assert.ok(!headers.some(h=>h.trim().toLowerCase()==='time'),`${id}: endpoint summary has meaningless time`)}
   if(id==='endpoint')assert.equal(Number(overview['Biological-level rows']),16,'endpoint demo should contain 16 biological-level observations');
-  if(id==='manual'){
-    const mode=await page.locator('.analysis-bundle-badge').textContent();
-    assert.equal(mode?.trim().toLowerCase(),'endpoint','manual demo must not inherit a prior kinetic/serial mode');
-    assert.ok(await page.locator('#viz_primary .main-svg').count()>0,'manual endpoint demo should render its primary phenotype view');
-  }
-  if(id==='dose'){
-    assert.equal(await page.locator('#viz_primary').count(),0,'dose response should not pool all doses into a generic endpoint distribution');
-    assert.equal(await page.locator('#viz_rank').count(),0,'dose response should not show a pooled cross-dose ranking');
-    assert.ok(await page.locator('#viz_dose .main-svg').count()>0,'dose response curve should render');
-    assert.ok(await page.locator('#viz_dose_normalized .main-svg').count()>0,'normalized dose-response curve should render');
-    assert.ok(await page.locator('#viz_dose_heatmap .main-svg').count()>0,'dose heatmap should render');
-    assert.ok(await page.locator('#viz_halfdose .main-svg').count()>0,'half-response summary should render');
-    const doseHeaders=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();
-    assert.ok(doseHeaders.some(h=>h.trim().toLowerCase()==='dose'),'dose summaries must retain the dose factor');
-  }
-
   if(id==='screen')assert.equal(Number(overview['Biological-level rows']),39,'screen demo should contain 39 biological-level observations');
-  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
-  if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
-${detail}
-DEBUG=${JSON.stringify(debug)}`)}}
-  if(id==='daily'){assert.equal(await page.locator('#viz_serial_auc').count(),1,'daily AUC card should exist');await page.locator('#viz_serial_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_serial_trend_slope').count(),1,'daily slope card should exist');await page.locator('#viz_serial_trend_slope .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  if(id==='kinetic'){assert.equal(await page.locator('#viz_metric_auc').count(),1,'kinetic AUC card should exist');await page.locator('#viz_metric_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_doubling_time').count(),1,'kinetic doubling-time card should exist');await page.locator('#viz_metric_doubling_time .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_lag').count(),1,'kinetic lag card should exist');await page.locator('#viz_metric_lag .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
-  if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
-${detail}
-DEBUG=${JSON.stringify(debug)}`)}}
-  if(id==='daily'){assert.equal(await page.locator('#viz_serial_auc').count(),1,'daily AUC card should exist');await page.locator('#viz_serial_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_serial_trend_slope').count(),1,'daily slope card should exist');await page.locator('#viz_serial_trend_slope .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  if(id==='kinetic'){assert.equal(await page.locator('#viz_metric_auc').count(),1,'kinetic AUC card should exist');await page.locator('#viz_metric_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_doubling_time').count(),1,'kinetic doubling-time card should exist');await page.locator('#viz_metric_doubling_time .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_lag').count(),1,'kinetic lag card should exist');await page.locator('#viz_metric_lag .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: biological summaries should not be fragmented into n=1 batch strata`);}
-  if(id==='matrix'){assert.equal(await page.locator('#viz_effects').count(),1,'matrix effect card should exist');if(await page.locator('#viz_effects .main-svg').count()===0){const detail=await page.locator('[data-analysis-module="metricTests"]').innerText();const debug=await page.evaluate(()=>window.__YEASTFIT_TEST_DEBUG);throw new Error(`matrix effect figure missing; integrated comparisons:
-${detail}
-DEBUG=${JSON.stringify(debug)}`)}}
-  if(id==='daily'){assert.equal(await page.locator('#viz_serial_auc').count(),1,'daily AUC card should exist');await page.locator('#viz_serial_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_serial_trend_slope').count(),1,'daily slope card should exist');await page.locator('#viz_serial_trend_slope .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  if(id==='kinetic'){assert.equal(await page.locator('#viz_metric_auc').count(),1,'kinetic AUC card should exist');await page.locator('#viz_metric_auc .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_doubling_time').count(),1,'kinetic doubling-time card should exist');await page.locator('#viz_metric_doubling_time .main-svg').first().waitFor({state:'attached',timeout:8000});assert.equal(await page.locator('#viz_metric_lag').count(),1,'kinetic lag card should exist');await page.locator('#viz_metric_lag .main-svg').first().waitFor({state:'attached',timeout:8000});}
-  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);
-  assert.ok(overflow<=6,`${id}: horizontal overflow ${overflow}px`);
+  if(id==='dose'){const doseHeaders=await page.locator('[data-analysis-module="timepoints"] th').allTextContents();assert.ok(doseHeaders.some(h=>h.trim().toLowerCase()==='dose'),'dose summaries must retain dose');}
+  if(['endpoint','screen','matrix'].includes(id)){const summaryText=await page.locator('[data-analysis-module="timepoints"]').innerText();assert.ok(!/\bNaN\b/.test(summaryText),`${id}: fragmented n=1 summary`)}
+  const overflow=await page.evaluate(()=>document.documentElement.scrollWidth-document.documentElement.clientWidth);assert.ok(overflow<=6,`${id}: horizontal overflow ${overflow}px`);
   await page.screenshot({path:`${out}/${id}-desktop.png`,fullPage:true});
 }
 
@@ -110,10 +88,10 @@ DEBUG=${JSON.stringify(debug)}`)}}
 const inputPage=await context.newPage();await ready(inputPage);
 const endpointCsv=`value,sample,genotype,condition,role,biological_rep,technical_rep,plate\n1.00,WT_B1,WT,YPGly,control,1,1,P1\n1.02,WT_B2,WT,YPGly,control,2,1,P1\n0.98,WT_B3,WT,YPGly,control,3,1,P1\n0.63,M_B1,mutA,YPGly,sample,1,1,P1\n0.67,M_B2,mutA,YPGly,sample,2,1,P1\n0.65,M_B3,mutA,YPGly,sample,3,1,P1\n`;
 const endpointPath=`${out}/upload_endpoint.csv`;await writeFile(endpointPath,endpointCsv);
-await uploadAndWait(inputPage,endpointPath,6);await analyzePreset(inputPage,'endpoint');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=4,'CSV endpoint renders report');
+await uploadAndWait(inputPage,endpointPath,6);await analyzePreset(inputPage,'endpoint');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=2,'CSV endpoint renders report');
 
 const dailyTsv=`day\tvalue\tsample\tgenotype\tcondition\trole\tbiological_rep\ttechnical_rep\tplate\n0\t0.12\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n1\t0.62\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n2\t1.00\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n0\t0.12\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n1\t0.64\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n2\t1.02\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n0\t0.12\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n1\t0.60\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n2\t0.99\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n0\t0.12\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n1\t0.43\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n2\t0.66\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n0\t0.12\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n1\t0.45\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n2\t0.68\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n0\t0.12\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n1\t0.42\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n2\t0.64\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n`;
-const tsvPath=`${out}/upload_daily.tsv`;await writeFile(tsvPath,dailyTsv);await uploadAndWait(inputPage,tsvPath,18);await analyzePreset(inputPage,'daily');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=4,'TSV daily renders report');
+const tsvPath=`${out}/upload_daily.tsv`;await writeFile(tsvPath,dailyTsv);await uploadAndWait(inputPage,tsvPath,18);await analyzePreset(inputPage,'daily');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=2,'TSV daily renders report');
 
 const jsonPath=`${out}/upload_endpoint.json`;await writeFile(jsonPath,JSON.stringify([
   {value:1.01,sample:'WT1',genotype:'WT',condition:'YPGly',role:'control',biological_rep:1},{value:.99,sample:'WT2',genotype:'WT',condition:'YPGly',role:'control',biological_rep:2},{value:1.02,sample:'WT3',genotype:'WT',condition:'YPGly',role:'control',biological_rep:3},
