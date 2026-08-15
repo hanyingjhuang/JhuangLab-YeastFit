@@ -79,3 +79,11 @@ The Results page automatically assembles analyses supported by the experimental 
 ## Visual experiment gallery
 
 Every experiment preset has a distinct schematic and a runnable in-browser teaching demo. The Results page begins with a design-specific multi-plot visual report rather than relying on a single generic graph. Depending on the design, this includes trajectories, control-normalized trajectories, endpoint and AUC distributions, time-by-group effect maps, screen rankings, robust-Z landscapes, genotype-by-condition heatmaps, dose-response curves, competition logit trajectories, selection proxies, kinetic metric distributions, effect-size plots, and replicate-CV diagnostics.
+
+## Unified setup and input templates
+
+YeastFit uses a single Setup page for data import, experiment selection, replicate/control mapping, and design review. Downloadable CSV and Excel templates are provided for every preset experiment plus a generic custom format and a 96-well plate-map template.
+
+## Visual report
+
+Every supported experiment receives a comprehensive core report covering biological-level magnitude, group estimates with uncertainty, matched-control normalization when defined, effect sizes and FDR, biological sample size, QC, ranking, and metric relationships when available. Design-specific plots are added on top of this common report.

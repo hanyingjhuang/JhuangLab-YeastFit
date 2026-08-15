@@ -21,8 +21,10 @@ async function analyzePreset(page,preset){
   await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>=6);
 }
 async function uploadAndWait(page,files,minRows=1){
+  const list=Array.isArray(files)?files:[files];
+  const names=list.map(x=>typeof x==='string'?x.split('/').at(-1):x.name);
   await page.setInputFiles('#dataFiles',files);
-  await page.waitForFunction(n=>window.YeastFit?.S?.raw?.length>=n,minRows);
+  await page.waitForFunction(({names,minRows})=>window.YeastFit?.S?.raw?.length>=minRows&&window.YeastFit.S.files.length===names.length&&names.every(n=>window.YeastFit.S.files.includes(n)),{names,minRows});
 }
 
 const context=await browser.newContext({viewport:{width:1440,height:1000},acceptDownloads:true});
@@ -67,7 +69,7 @@ const endpointPath=`${out}/upload_endpoint.csv`;await writeFile(endpointPath,end
 await uploadAndWait(inputPage,endpointPath,6);await analyzePreset(inputPage,'endpoint');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=4,'CSV endpoint renders report');
 
 const dailyTsv=`day\tvalue\tsample\tgenotype\tcondition\trole\tbiological_rep\ttechnical_rep\tplate\n0\t0.12\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n1\t0.62\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n2\t1.00\tWT_B1\tWT\tYPGly\tcontrol\t1\t1\tP1\n0\t0.12\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n1\t0.64\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n2\t1.02\tWT_B2\tWT\tYPGly\tcontrol\t2\t1\tP1\n0\t0.12\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n1\t0.60\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n2\t0.99\tWT_B3\tWT\tYPGly\tcontrol\t3\t1\tP1\n0\t0.12\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n1\t0.43\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n2\t0.66\tM_B1\tmutA\tYPGly\tsample\t1\t1\tP1\n0\t0.12\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n1\t0.45\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n2\t0.68\tM_B2\tmutA\tYPGly\tsample\t2\t1\tP1\n0\t0.12\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n1\t0.42\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n2\t0.64\tM_B3\tmutA\tYPGly\tsample\t3\t1\tP1\n`;
-const tsvPath=`${out}/upload_daily.tsv`;await writeFile(tsvPath,dailyTsv);await uploadAndWait(inputPage,tsvPath,18);await analyzePreset(inputPage,'daily');assert.ok(window!==undefined);
+const tsvPath=`${out}/upload_daily.tsv`;await writeFile(tsvPath,dailyTsv);await uploadAndWait(inputPage,tsvPath,18);await analyzePreset(inputPage,'daily');assert.ok((await inputPage.locator('#visualDashboard .main-svg').count())>=4,'TSV daily renders report');
 
 const jsonPath=`${out}/upload_endpoint.json`;await writeFile(jsonPath,JSON.stringify([
   {value:1.01,sample:'WT1',genotype:'WT',condition:'YPGly',role:'control',biological_rep:1},{value:.99,sample:'WT2',genotype:'WT',condition:'YPGly',role:'control',biological_rep:2},{value:1.02,sample:'WT3',genotype:'WT',condition:'YPGly',role:'control',biological_rep:3},
@@ -83,6 +85,8 @@ const meta=['well,sample,genotype,condition,role,biological_rep,technical_rep'];
 await uploadAndWait(inputPage,widePath,3);await inputPage.setInputFiles('#metaFiles',metaPath);await inputPage.waitForFunction(()=>window.YeastFit.S.meta.length===12);await analyzePreset(inputPage,'daily');assert.ok(await inputPage.locator('#visualDashboard .main-svg').count()>=4,'wide + plate map renders report');
 
 // Pasted table path.
+await inputPage.evaluate(()=>window.YeastFit.step(1));
+await inputPage.locator('.paste-box').evaluate(el=>el.open=true);
 await inputPage.locator('#pasteArea').fill(endpointCsv);await inputPage.locator('#parsePasteBtn').click();await inputPage.waitForFunction(()=>window.YeastFit.S.files[0]==='pasted table'&&window.YeastFit.S.raw.length===6);await analyzePreset(inputPage,'endpoint');
 
 // XLSX and legacy .xls parser routes. Parsing is enough here because the same canonicalization is tested above.
