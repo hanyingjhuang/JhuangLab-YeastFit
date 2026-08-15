@@ -4,7 +4,8 @@ const advanced=fs.readFileSync('js/advanced.js','utf8');
 for(const required of [
   'function collapseMetricTable(rows)',
   'metrics=collapseMetricTable(S.metrics)',
-  "filteredTests(out.normalizedMetrics,'relative_to_control'",
+  'matchedControlComparisons(out.normalizedMetrics',
+  'matchedControlComparisons(out.normalizedPoints',
   'function reportStrata(strata=[])',
   'report_label'
 ]){
