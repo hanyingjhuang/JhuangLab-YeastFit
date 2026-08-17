@@ -1,0 +1,55 @@
+name: Validate request automation
+
+on:
+  push:
+    branches: [request-automation]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: request-automation
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Validate YAML files
+        run: |
+          ruby -e 'require "yaml"; YAML.load_file(".github/ISSUE_TEMPLATE/change-request.yml"); YAML.load_file(".github/workflows/request-maintenance.yml")'
+      - name: Unit and syntax tests
+        run: |
+          npm test
+          npm run check
+      - name: Simulate a supported request
+        run: |
+          rm -rf /tmp/yeastfit-request-fixture
+          cp -a . /tmp/yeastfit-request-fixture
+          cat > /tmp/request-event.json <<'EOF'
+          {
+            "issue": {
+              "number": 999,
+              "body": "### Request type\n\nExact wording change\n\n### Area\n\nSetup\n\n### Short request\n\nSimplify one label\n\n### Current text\n\nReview assumptions\n\n### Replacement text\n\nConfirm assumptions\n\n### Release preference\n\nOpen a change for review before release"
+            }
+          }
+          EOF
+          node /tmp/yeastfit-request-fixture/scripts/request-automation.mjs --event /tmp/request-event.json --root /tmp/yeastfit-request-fixture
+          node -e 'const p=require("/tmp/yeastfit-request-fixture/request-plan.json"); if(p.status!=="auto-change"||p.release!=="review")process.exit(1)'
+          grep -q "Confirm assumptions" /tmp/yeastfit-request-fixture/js/workflow-v05.js
+          node --check /tmp/yeastfit-request-fixture/js/workflow-v05.js
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Full browser validation
+        run: |
+          python3 -m http.server 4173 >/tmp/yeastfit-request-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 2
+          npm run test:browser
+          npm run test:request-ui
