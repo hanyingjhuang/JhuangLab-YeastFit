@@ -53,3 +53,5 @@ jobs:
           sleep 2
           npm run test:browser
           npm run test:request-ui
+
+# Branch-only validation; removed before merge.
