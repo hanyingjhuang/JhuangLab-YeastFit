@@ -1,0 +1,131 @@
+name: Request a YeastFit change
+description: Suggest an improvement, report a problem, or request a routine change.
+title: "[Request] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve YeastFit. Routine, well-defined requests can be applied and tested automatically. Requests that require scientific or architectural judgment are recorded for review instead of being guessed.
+
+  - type: dropdown
+    id: request_type
+    attributes:
+      label: Request type
+      description: Choose the closest match. The first three types support automatic implementation when the fields below are complete and safe.
+      options:
+        - Exact wording change
+        - Default analysis setting
+        - Theme color
+        - Bug / unexpected behavior
+        - New feature / analysis
+        - Other
+      default: 0
+    validations:
+      required: true
+
+  - type: input
+    id: area
+    attributes:
+      label: Area
+      description: Where in YeastFit should this change happen?
+      placeholder: Results, Setup, Daily measurements, Dose response, site-wide, etc.
+    validations:
+      required: true
+
+  - type: input
+    id: summary
+    attributes:
+      label: Short request
+      placeholder: "Example: Change ‘Comprehensive results’ to ‘Analysis report’"
+    validations:
+      required: true
+
+  - type: input
+    id: current_text
+    attributes:
+      label: Current text
+      description: For an exact wording change, paste the exact visible text currently shown. Leave blank for other request types.
+      placeholder: Comprehensive results
+
+  - type: input
+    id: replacement_text
+    attributes:
+      label: Replacement text
+      description: For an exact wording change, enter the exact replacement. Simple plain text is eligible for automatic implementation.
+      placeholder: Analysis report
+
+  - type: dropdown
+    id: setting_key
+    attributes:
+      label: Default setting
+      description: For a default analysis setting request, choose the setting. Otherwise leave Not applicable.
+      options:
+        - Not applicable
+        - Blank value
+        - Minimum log-phase signal
+        - Maximum log-phase signal
+        - Growth window points
+        - Minimum growth-fit R²
+        - Threshold value
+        - Saturation signal
+        - High starting signal
+        - Minimum dynamic range
+        - Maximum missing fraction
+      default: 0
+
+  - type: input
+    id: new_value
+    attributes:
+      label: New default value
+      description: Numeric value for a default-setting request.
+      placeholder: 0.95
+
+  - type: dropdown
+    id: color_key
+    attributes:
+      label: Theme color
+      description: For a theme-color request, choose the palette role. Otherwise leave Not applicable.
+      options:
+        - Not applicable
+        - Primary green
+        - Secondary green
+        - Gold accent
+        - Rust accent
+        - Plum accent
+        - Page background
+        - Main text
+      default: 0
+
+  - type: input
+    id: color_value
+    attributes:
+      label: New color
+      description: Six-digit hex color for a theme-color request.
+      placeholder: "#315c45"
+
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Explain the desired behavior, why it matters, or how to reproduce a problem. Attach a screenshot if useful.
+      placeholder: What should happen, and what happens now?
+
+  - type: dropdown
+    id: release_preference
+    attributes:
+      label: Release preference
+      description: Automatic release is attempted only for supported deterministic changes after the full validation suite passes.
+      options:
+        - Automatic when supported and tests pass
+        - Open a change for review before release
+      default: 0
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I understand that unsupported or ambiguous requests will be queued for review rather than applied automatically.
+          required: true
