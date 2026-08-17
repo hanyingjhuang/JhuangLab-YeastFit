@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.mjs",
-    "check": "node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/comprehensive.js && node --check js/app.js && node --check js/demo-catalog.js && node --check js/templates.js && node --check js/presets.js && node --check js/workflow-v05.js && node --check js/dashboard.js && node --check js/advanced.js",
+    "check": "node --check js/analysis.js && node --check js/data.js && node --check js/stats.js && node --check js/comprehensive.js && node --check js/app.js && node --check js/demo-catalog.js && node --check js/templates.js && node --check js/presets.js && node --check js/workflow-v05.js && node --check js/dashboard.js && node --check js/advanced.js && node --check js/dashboard-extra.js",
     "test:browser": "node tests/browser-smoke.mjs"
   }
 }
