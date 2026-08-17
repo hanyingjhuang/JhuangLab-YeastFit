@@ -25,7 +25,7 @@ jobs:
           if ! git diff --quiet; then
             git config user.name github-actions[bot]
             git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-            git add index.html package.json
+            git add index.html package.json tests/browser-smoke.mjs
             git commit -m "Wire supplementary comprehensive plots"
             git push
           fi
@@ -46,6 +46,10 @@ jobs:
           npm run test:browser
       - name: Verify supplementary plots
         run: |
+          python3 -m http.server 4173 >/tmp/yeastfit-extra-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 2
           cat > /tmp/check-extra.mjs <<'EOF'
           import assert from 'node:assert/strict';
           import { chromium } from 'playwright';
@@ -56,15 +60,19 @@ jobs:
           for(const preset of ['daily','screen','matrix','evolution','dose','competition','kinetic','manual']){
             await page.evaluate(p=>window.YeastFitPresets.runDemo(p),preset);
             await page.waitForFunction(()=>window.YeastFit?.S?.metrics?.length>0);
-            await page.waitForTimeout(500);
+            await page.waitForTimeout(600);
             const details=page.locator('#visualMoreAnalyses');
             if(await details.count()){
               const cards=await details.locator('.visual-card').count();
               assert.ok(cards>=1,`${preset} extra section must contain plots`);
               assert.ok(cards<=8,`${preset} extra section should remain curated`);
+              await details.evaluate(el=>el.open=true);
               for(let i=0;i<cards;i++){
-                const traces=await details.locator('.visual-card').nth(i).locator('.plotly').count();
-                assert.ok(traces>=1,`${preset} supplementary card ${i} must render`);
+                const plot=details.locator('.visual-card').nth(i).locator('.visual-plot');
+                await plot.locator('.main-svg').first().waitFor({state:'attached',timeout:8000});
+                const health=await plot.evaluate(el=>({traces:el.data?.length||0,w:el.getBoundingClientRect().width,h:el.getBoundingClientRect().height}));
+                assert.ok(health.traces>0,`${preset} supplementary card ${i} must have traces`);
+                assert.ok(health.w>220&&health.h>180,`${preset} supplementary card ${i} must be legible`);
               }
             }
           }
