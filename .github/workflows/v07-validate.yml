@@ -1,0 +1,73 @@
+name: Validate YeastFit v0.7 comprehensive plots
+
+on:
+  push:
+    branches: [v0.7-comprehensive-plots]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: v0.7-comprehensive-plots
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - name: Apply integration patch
+        run: node scripts/apply-v07.mjs
+      - name: Commit integration changes
+        run: |
+          if ! git diff --quiet; then
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add index.html package.json
+            git commit -m "Wire supplementary comprehensive plots"
+            git push
+          fi
+      - name: Unit and syntax tests
+        run: |
+          npm test
+          npm run check
+      - name: Install Playwright
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+      - name: Run browser suite
+        run: |
+          python3 -m http.server 4173 >/tmp/yeastfit-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 2
+          npm run test:browser
+      - name: Verify supplementary plots
+        run: |
+          cat > /tmp/check-extra.mjs <<'EOF'
+          import assert from 'node:assert/strict';
+          import { chromium } from 'playwright';
+          const browser=await chromium.launch({headless:true});
+          const page=await browser.newPage({viewport:{width:1440,height:1000}});
+          await page.goto('http://127.0.0.1:4173',{waitUntil:'networkidle'});
+          await page.waitForFunction(()=>window.YeastFit&&window.YeastFitPresets);
+          for(const preset of ['daily','screen','matrix','evolution','dose','competition','kinetic','manual']){
+            await page.evaluate(p=>window.YeastFitPresets.runDemo(p),preset);
+            await page.waitForFunction(()=>window.YeastFit?.S?.metrics?.length>0);
+            await page.waitForTimeout(500);
+            const details=page.locator('#visualMoreAnalyses');
+            if(await details.count()){
+              const cards=await details.locator('.visual-card').count();
+              assert.ok(cards>=1,`${preset} extra section must contain plots`);
+              assert.ok(cards<=8,`${preset} extra section should remain curated`);
+              for(let i=0;i<cards;i++){
+                const traces=await details.locator('.visual-card').nth(i).locator('.plotly').count();
+                assert.ok(traces>=1,`${preset} supplementary card ${i} must render`);
+              }
+            }
+          }
+          await browser.close();
+          EOF
+          node /tmp/check-extra.mjs
