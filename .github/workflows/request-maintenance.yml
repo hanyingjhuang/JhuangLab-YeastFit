@@ -1,0 +1,114 @@
+name: Request maintenance
+
+on:
+  issues:
+    types: [opened, reopened]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+  actions: write
+
+concurrency:
+  group: request-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  process:
+    if: startsWith(github.event.issue.title, '[Request]')
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      AUTHOR_ASSOCIATION: ${{ github.event.issue.author_association }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Classify and apply supported request
+        id: plan
+        run: |
+          node scripts/request-automation.mjs --event "$GITHUB_EVENT_PATH"
+          node <<'NODE'
+          const fs=require('fs');
+          const p=JSON.parse(fs.readFileSync('request-plan.json','utf8'));
+          const trusted=['OWNER','MEMBER','COLLABORATOR'].includes(process.env.AUTHOR_ASSOCIATION);
+          fs.appendFileSync(process.env.GITHUB_OUTPUT,`status=${p.status}\nrelease=${p.release}\ntrusted=${trusted}\n`);
+          NODE
+
+      - name: Queue unsupported request
+        if: steps.plan.outputs.status == 'manual-review'
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "Request received. This one needs maintainer review because it falls outside the deterministic maintenance rules. No repository files were changed."
+
+      - name: Close request that needs no change
+        if: steps.plan.outputs.status == 'no-change'
+        run: |
+          gh issue close "$ISSUE_NUMBER" --comment "Checked automatically. The requested value is already in place, so no repository change was needed."
+
+      - name: Run unit and syntax validation
+        if: steps.plan.outputs.status == 'auto-change'
+        run: |
+          npm test
+          npm run check
+
+      - name: Install browser validation
+        if: steps.plan.outputs.status == 'auto-change'
+        run: |
+          npm install --no-save playwright@1.55.0
+          npx playwright install --with-deps chromium
+
+      - name: Run browser validation
+        if: steps.plan.outputs.status == 'auto-change'
+        run: |
+          python3 -m http.server 4173 >/tmp/yeastfit-request-http.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID || true' EXIT
+          sleep 2
+          npm run test:browser
+
+      - name: Create tested change
+        id: change
+        if: steps.plan.outputs.status == 'auto-change'
+        run: |
+          BRANCH="request-${ISSUE_NUMBER}"
+          git config user.name "Jhuang Lab Automation"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          rm -f request-plan.json
+          git add -u
+          if git diff --cached --quiet; then
+            echo "No tracked change remained after validation."
+            exit 1
+          fi
+          git commit -m "Apply request #${ISSUE_NUMBER}"
+          git push origin "$BRANCH"
+          gh pr create --base main --head "$BRANCH" --title "Apply request #${ISSUE_NUMBER}" --body "Implements #${ISSUE_NUMBER}.\n\nValidation completed before this change was proposed:\n- unit tests\n- syntax checks\n- full browser regression suite"
+          PR_NUMBER=$(gh pr view "$BRANCH" --json number --jq .number)
+          echo "pr=$PR_NUMBER" >> "$GITHUB_OUTPUT"
+
+      - name: Report prepared change
+        if: steps.plan.outputs.status == 'auto-change' && !(steps.plan.outputs.release == 'automatic' && steps.plan.outputs.trusted == 'true')
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "A tested change has been prepared in #${{ steps.change.outputs.pr }}. A maintainer can review and release it."
+
+      - name: Release trusted routine request
+        if: steps.plan.outputs.status == 'auto-change' && steps.plan.outputs.release == 'automatic' && steps.plan.outputs.trusted == 'true'
+        run: |
+          PR_NUMBER="${{ steps.change.outputs.pr }}"
+          gh pr merge "$PR_NUMBER" --squash --delete-branch
+          gh issue comment "$ISSUE_NUMBER" --body "The tested change was merged in #${PR_NUMBER}. Deployment has been requested."
+          gh workflow run pages.yml --ref main
+
+      - name: Report validation failure
+        if: failure() && steps.plan.outputs.status == 'auto-change'
+        run: |
+          gh issue comment "$ISSUE_NUMBER" --body "The automatic change was stopped because validation did not complete successfully. No unvalidated change was released; this request needs maintainer review."
