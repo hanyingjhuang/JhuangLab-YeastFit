@@ -61,9 +61,12 @@ for(const id of scenarios){
   await page.waitForFunction(x=>window.YeastFit?.S?.design?.preset===x&&window.YeastFit.S.metrics?.length>0,id);
   await page.waitForFunction(()=>document.querySelectorAll('#visualDashboard .visual-card').length>0);
   await page.waitForTimeout(250);
-  const cards=await page.locator('#visualDashboard .visual-card').count();
-  assert.ok(cards>=visualExpected[id].length,`${id}: too few meaningful figures (${cards})`);
-  assert.ok(cards<=visualMax[id],`${id}: visual report is redundant (${cards} cards)`);
+  const mainCards=await page.locator('#visualDashboard > .visual-grid > .visual-card').count();
+  const extraCards=await page.locator('#visualMoreAnalyses .visual-card').count();
+  const cards=mainCards+extraCards;
+  assert.ok(mainCards>=visualExpected[id].length,`${id}: too few key figures (${mainCards})`);
+  assert.ok(mainCards<=visualMax[id],`${id}: key report is redundant (${mainCards} cards)`);
+  assert.ok(extraCards<=8,`${id}: supplementary report is excessive (${extraCards} cards)`);
   assert.equal(await page.locator('#visualDashboard .visual-placeholder').count(),0,`${id}: empty plot card rendered`);
   const titles=(await page.locator('#visualDashboard .visual-card-head h4').allTextContents()).map(x=>x.trim());
   assert.equal(new Set(titles).size,titles.length,`${id}: duplicate plot titles`);
