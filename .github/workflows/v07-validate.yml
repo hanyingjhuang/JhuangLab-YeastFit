@@ -61,8 +61,8 @@ jobs:
           await page.goto('http://127.0.0.1:4173',{waitUntil:'networkidle'});
           await page.waitForFunction(()=>window.YeastFit&&window.YeastFitPresets);
           for(const preset of ['daily','screen','matrix','evolution','dose','competition','kinetic','manual']){
-            await page.evaluate(p=>window.YeastFitPresets.runDemo(p),preset);
-            await page.waitForFunction(()=>window.YeastFit?.S?.metrics?.length>0);
+            await page.evaluate(p=>window.YeastFitPresets.loadDemo(p),preset);
+            await page.waitForFunction(p=>window.YeastFit?.S?.design?.preset===p&&window.YeastFit.S.metrics?.length>0,preset);
             await page.waitForTimeout(700);
             const details=page.locator('#visualMoreAnalyses');
             if(await details.count()){
