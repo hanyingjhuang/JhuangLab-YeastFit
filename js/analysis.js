@@ -4,17 +4,32 @@ export function movingAverage(points, window = 1) {
   if (window <= 1) return points.map(p => ({ ...p }));
   const half = Math.floor(window / 2);
   return points.map((p, i) => {
+    if (!Number.isFinite(p.value)) return { ...p };
     const vals = points.slice(Math.max(0, i - half), Math.min(points.length, i + half + 1)).map(x => x.value).filter(Number.isFinite);
-    return { ...p, value: mean(vals) };
+    return { ...p, value: vals.length ? mean(vals) : NaN };
   });
 }
 
 export function trapezoidAUC(points) {
-  const p = points.filter(x => Number.isFinite(x.time) && Number.isFinite(x.value)).sort((a, b) => a.time - b.time);
+  const p = points.filter(x => Number.isFinite(x.time)).sort((a, b) => a.time - b.time);
   if (p.length < 2) return NaN;
-  let area = 0;
-  for (let i = 1; i < p.length; i++) area += (p[i].time - p[i - 1].time) * (p[i].value + p[i - 1].value) / 2;
-  return area;
+  let area = 0, intervals = 0;
+  for (let i = 1; i < p.length; i++) {
+    if (!Number.isFinite(p[i - 1].value) || !Number.isFinite(p[i].value)) continue;
+    area += (p[i].time - p[i - 1].time) * (p[i].value + p[i - 1].value) / 2;
+    intervals++;
+  }
+  return intervals ? area : NaN;
+}
+
+export function aucCoverage(points) {
+  const p = points.filter(x => Number.isFinite(x.time)).sort((a, b) => a.time - b.time);
+  if (p.length < 2) return NaN;
+  const span = p.at(-1).time - p[0].time;
+  if (!(span > 0)) return NaN;
+  let covered = 0;
+  for (let i = 1; i < p.length; i++) if (Number.isFinite(p[i - 1].value) && Number.isFinite(p[i].value)) covered += p[i].time - p[i - 1].time;
+  return Math.max(0, Math.min(1, covered / span));
 }
 
 function linearFit(xs, ys) {
@@ -63,8 +78,9 @@ export function estimateLag(points, growthFit) {
 }
 
 export function timeToThreshold(points, threshold) {
-  const p = points.filter(x => Number.isFinite(x.time) && Number.isFinite(x.value)).sort((a, b) => a.time - b.time);
+  const p = points.filter(x => Number.isFinite(x.time)).sort((a, b) => a.time - b.time);
   for (let i = 1; i < p.length; i++) {
+    if (!Number.isFinite(p[i - 1].value) || !Number.isFinite(p[i].value)) continue;
     if (p[i - 1].value < threshold && p[i].value >= threshold) {
       const frac = (threshold - p[i - 1].value) / (p[i].value - p[i - 1].value);
       return p[i - 1].time + frac * (p[i].time - p[i - 1].time);
@@ -84,12 +100,13 @@ export function applyAdjustments(points, options = {}) {
   } = options;
   let out = points
     .filter(p => p.time >= startTime && p.time <= endTime)
-    .map(p => ({ ...p, value: p.value - (Number.isFinite(blank) ? blank : 0) }));
+    .map(p => ({ ...p, value: Number.isFinite(p.value) ? p.value - (Number.isFinite(blank) ? blank : 0) : NaN }));
   if (baselineSubtract && out.length) {
-    const baseline = median(out.slice(0, Math.min(3, out.length)).map(x => x.value));
-    out = out.map(p => ({ ...p, value: p.value - baseline }));
+    const firstObserved = out.find(x => Number.isFinite(x.value));
+    const baseline = firstObserved?.value;
+    if (Number.isFinite(baseline)) out = out.map(p => ({ ...p, value: Number.isFinite(p.value) ? p.value - baseline : NaN }));
   }
-  if (clampNegative) out = out.map(p => ({ ...p, value: Math.max(0, p.value) }));
+  if (clampNegative) out = out.map(p => ({ ...p, value: Number.isFinite(p.value) ? Math.max(0, p.value) : NaN }));
   return movingAverage(out, smoothWindow);
 }
 
@@ -105,24 +122,34 @@ export function qcCurve(points, options = {}) {
   const finite = values.filter(Number.isFinite);
   const flags = [];
   if (!finite.length) return ['no_numeric_data'];
-  const missingFraction = 1 - finite.length / values.length;
+  const missingFraction = 1 - finite.length / Math.max(1, values.length);
+  if (missingFraction > 0) flags.push('missing_values_present');
   if (missingFraction > maxMissingFraction) flags.push('many_missing_values');
   if (finite[0] > highStartOD) flags.push('high_starting_signal');
   if (Math.max(...finite) >= saturationOD) flags.push('possible_saturation');
   if (Math.max(...finite) - Math.min(...finite) < minDynamicRange) flags.push('low_dynamic_range');
   let drops = 0, comparisons = 0;
-  for (let i = 1; i < finite.length; i++) {
+  const ordered = points.filter(x=>Number.isFinite(x.time)).sort((a,b)=>a.time-b.time);
+  for (let i = 1; i < ordered.length; i++) {
+    if (!Number.isFinite(ordered[i - 1].value) || !Number.isFinite(ordered[i].value)) continue;
     comparisons++;
-    if (finite[i] < finite[i - 1]) drops++;
+    if (ordered[i].value < ordered[i - 1].value) drops++;
   }
   if (comparisons && drops / comparisons > maxDropFraction) flags.push('frequent_signal_decreases');
   return flags;
+}
+
+function qualityMeta(adjusted) {
+  const total = adjusted.length, observed = adjusted.filter(x=>Number.isFinite(x.value)).length, coverage = aucCoverage(adjusted);
+  return { totalPoints: total, observedPoints: observed, missingFraction: total ? 1 - observed / total : NaN, aucCoverage: coverage };
 }
 
 export function analyzeCurve(points, options = {}) {
   const adjusted = applyAdjustments(points, options.adjustments || {});
   const fit = maxSpecificGrowthRate(adjusted, options.growth || {});
   const finite = adjusted.map(x => x.value).filter(Number.isFinite);
+  const quality=qualityMeta(adjusted),qc=qcCurve(adjusted, options.qc || {});
+  if (Number.isFinite(quality.aucCoverage) && quality.aucCoverage < 1 && !qc.includes('incomplete_auc_coverage')) qc.push('incomplete_auc_coverage');
   return {
     adjusted,
     auc: trapezoidAUC(adjusted),
@@ -135,7 +162,8 @@ export function analyzeCurve(points, options = {}) {
     growthEnd: fit.end,
     lag: estimateLag(adjusted, fit),
     timeToThreshold: Number.isFinite(options.threshold) ? timeToThreshold(adjusted, options.threshold) : NaN,
-    qc: qcCurve(adjusted, options.qc || {})
+    ...quality,
+    qc
   };
 }
 
@@ -145,9 +173,13 @@ export function analyzeSerialSeries(points, options = {}) {
   const first = p.length ? p[0].value : NaN;
   const endpoint = p.length ? p.at(-1).value : NaN;
   const fit = p.length >= 2 ? linearFit(p.map(x => x.time), p.map(x => x.value)) : { slope: NaN, r2: NaN };
+  const quality=qualityMeta(adjusted),qc=qcCurve(adjusted, options.qc || {});
+  if (Number.isFinite(quality.aucCoverage) && quality.aucCoverage < 1 && !qc.includes('incomplete_auc_coverage')) qc.push('incomplete_auc_coverage');
+  const scheduledTimes=adjusted.map(x=>x.time).filter(Number.isFinite);const lastScheduled=scheduledTimes.length?Math.max(...scheduledTimes):NaN,lastObserved=p.length?p.at(-1).time:NaN;
+  if(Number.isFinite(lastScheduled)&&Number.isFinite(lastObserved)&&lastObserved<lastScheduled)qc.push('endpoint_missing_at_last_time');
   return {
     adjusted,
-    auc: trapezoidAUC(p),
+    auc: trapezoidAUC(adjusted),
     maxValue: p.length ? Math.max(...p.map(x => x.value)) : NaN,
     endpoint,
     firstValue: first,
@@ -156,8 +188,10 @@ export function analyzeSerialSeries(points, options = {}) {
     log2FoldChange: first > 0 && endpoint > 0 ? Math.log2(endpoint / first) : NaN,
     trendSlope: fit.slope,
     trendR2: fit.r2,
-    timeToThreshold: Number.isFinite(options.threshold) ? timeToThreshold(p, options.threshold) : NaN,
-    qc: qcCurve(p, options.qc || {})
+    timeToThreshold: Number.isFinite(options.threshold) ? timeToThreshold(adjusted, options.threshold) : NaN,
+    endpointTime:lastObserved,
+    ...quality,
+    qc
   };
 }
 
