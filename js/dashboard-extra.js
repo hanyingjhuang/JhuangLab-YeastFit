@@ -1,3 +1,4 @@
+import './data-quality.js';
 import { median } from './stats.js';
 import { controlNormalize, twoByTwoInteraction, competitionSelection } from './comprehensive.js';
 
