@@ -8,6 +8,7 @@ const wellRe=/^[A-Pa-p]0?([1-9]|1[0-9]|2[0-4])$/;
 const records=()=>S.qualityExclusions||(S.qualityExclusions=[]);
 let manualIds=new Set();
 let initialized=false;
+let exclusionTextarea=null;
 
 function field(rows,re){return rows?.length?Object.keys(rows[0]).find(k=>re.test(k))||'':''}
 function mappedField(id,re,rows){const v=$(id)?.value;return v&&rows?.some(r=>Object.prototype.hasOwnProperty.call(r,v))?v:field(rows,re)}
@@ -35,9 +36,10 @@ function missingSummary(){
   const missing=vals.filter(missingToken).length,total=vals.length,percent=total?100*missing/total:0;
   return{missing,total,percent,label:`${missing} of ${total} measurements missing (${percent.toFixed(percent<1?1:0)}%)`};
 }
-function parseManual(){const ta=$('#excludedIds');if(!ta)return;manualIds=new Set(ta.value.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).filter(x=>!records().some(r=>r.key===x)))}
+function ta(){return exclusionTextarea||$('#excludedIds')}
+function parseManual(){const el=ta();if(!el)return;manualIds=new Set(el.value.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).filter(x=>!records().some(r=>r.key===x)))}
 function sync(){
-  const ta=$('#excludedIds');if(ta){const ids=uniq([...manualIds,...records().map(r=>r.key)]);ta.value=ids.join('\n');ta.dispatchEvent(new Event('input',{bubbles:true}));}
+  const el=ta();if(el){const ids=uniq([...manualIds,...records().map(r=>r.key)]);el.value=ids.join('\n');el.dispatchEvent(new Event('input',{bubbles:true}));}
   S.design.qualityExclusions=records().map(r=>({...r}));
   S.design.missingDataPolicy='Missing values remain missing; no automatic imputation; explicit missing gaps are not bridged for AUC or threshold interpolation.';
   render();
@@ -63,7 +65,7 @@ function render(){
   <div class="dq-controls"><label>Find sample or well<input id="dqSearch" value="${esc(search)}" placeholder="Type a sample, strain, well…"></label><label>Target<select id="dqTarget"><option value="">Choose a sample or well</option>${cs.filter(x=>!search||x.label.toLowerCase().includes(search.toLowerCase())).map(x=>`<option value="${esc(`${x.scope}|${x.key}`)}" ${`${x.scope}|${x.key}`===current?'selected':''}>${esc(x.label)}</option>`).join('')}</select></label><label>Reason<select id="dqReason"><option>Contamination</option><option>Pipetting error</option><option>Plate artifact</option><option>Mislabeled sample</option><option>Instrument issue</option><option>Other quality concern</option></select></label><div class="dq-buttons"><button type="button" class="secondary" id="dqContaminate">Mark contaminated</button><button type="button" class="ghost" id="dqExclude">Exclude</button></div></div>
   <div class="dq-list">${records().length?records().map((r,i)=>`<div class="dq-record ${r.status==='contaminated'?'is-contaminated':''}"><div><span class="dq-badge">${esc(r.status==='contaminated'?'CONTAMINATED':'EXCLUDED')}</span><b>${esc(r.label||r.key)}</b><small>${esc(r.reason)} · ${esc(r.scope)}${r.source==='metadata'?' · from metadata':''}</small></div><button type="button" class="ghost small" data-dq-restore="${i}">Restore</button></div>`).join(''):'<div class="dq-empty">No samples are currently excluded.</div>'}</div>
   <details class="dq-advanced"><summary>Advanced manual IDs</summary><p class="muted">Paste curve IDs, sample IDs, or wells. These are combined with the marked records above.</p></details><button type="button" class="ghost small" id="dqDownload">Download quality log</button>`;
-  const adv=root.querySelector('.dq-advanced');const ta=$('#excludedIds');if(ta){adv.appendChild(ta);ta.style.display='block';ta.oninput=()=>parseManual();}
+  const adv=root.querySelector('.dq-advanced'),el=ta();if(el){adv.appendChild(el);el.style.display='block';el.oninput=()=>parseManual();}
   root.querySelector('#dqSearch').oninput=e=>{const v=e.target.value;setTimeout(()=>{const x=$('#dqSearch');if(x)x.value=v;render()},0)};
   const getTarget=()=>{const v=root.querySelector('#dqTarget').value;if(!v)return null;const [scope,...rest]=v.split('|'),key=rest.join('|');return cs.find(x=>x.scope===scope&&x.key===key)||{scope,key,label:key}};
   root.querySelector('#dqContaminate').onclick=()=>{const t=getTarget();if(t)addRecord(t,'contaminated','Contamination')};
@@ -72,7 +74,8 @@ function render(){
   root.querySelector('#dqDownload').onclick=downloadLog;
 }
 function install(){
-  if(initialized||!S)return;const old=$('#excludedIds')?.closest('.subcard');if(!old)return;initialized=true;parseManual();
+  if(initialized||!S)return;exclusionTextarea=$('#excludedIds');const old=exclusionTextarea?.closest('.subcard');if(!old)return;initialized=true;parseManual();
+  exclusionTextarea.remove();
   old.innerHTML='<h3>Data quality</h3><p class="muted">Missing values are handled explicitly. Mark contaminated samples or other exclusions here without deleting the original observations.</p><div id="dataQualityManager"></div>';
   const exp=$('.step-panel[data-panel="6"] .export-grid');if(exp&&!$('#qualityLogExport')){const b=document.createElement('button');b.id='qualityLogExport';b.className='export-card';b.innerHTML='<b>Data quality log</b><span>CSV</span><small>Missing-data policy, contaminated samples, exclusions, reasons, and provenance.</small>';b.onclick=downloadLog;exp.appendChild(b)}
   const style=document.createElement('style');style.id='dqStyle';style.textContent='.dq-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.dq-summary>div{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fafbf8}.dq-summary small,.dq-summary span{display:block;color:var(--muted);font-size:10px}.dq-summary b{display:block;font-size:13px;margin:2px 0}.dq-controls{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:8px;align-items:end}.dq-controls label{margin:0!important}.dq-buttons{display:flex;gap:6px;grid-column:1/-1}.dq-list{margin:10px 0}.dq-record{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eee;padding:8px 0}.dq-record>div{min-width:0}.dq-record b,.dq-record small{display:block}.dq-record small{color:var(--muted);font-size:10px}.dq-badge{display:inline-block;font-size:9px;font-weight:850;letter-spacing:.06em;padding:2px 6px;border-radius:999px;background:#eee;color:#58635b;margin-right:6px}.dq-record.is-contaminated .dq-badge{background:#f4ddd5;color:#8a4938}.dq-empty{font-size:11px;color:var(--muted);padding:8px 0}.dq-advanced{margin:8px 0}.dq-advanced textarea{width:100%;margin-top:8px}.export-grid #qualityLogExport{display:flex}@media(max-width:700px){.dq-summary,.dq-controls{grid-template-columns:1fr}.dq-buttons{grid-column:auto}}';document.head.appendChild(style);
