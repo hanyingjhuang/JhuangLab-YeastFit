@@ -11,8 +11,10 @@ export function normalizeWell(v) {
 }
 
 export function optionalNumber(v, fallback = NaN) {
-  if (v === null || v === undefined || String(v).trim() === '') return fallback;
-  const n = Number(v);
+  if (v === null || v === undefined) return fallback;
+  const s = String(v).trim();
+  if (s === '' || /^(na|n\/a|nan|null|none|missing|nd|\.|-)$/i.test(s)) return fallback;
+  const n = Number(s);
   return Number.isFinite(n) ? n : fallback;
 }
 
@@ -52,7 +54,7 @@ export function detectShape(rows) {
     return { type: 'wide_plate_timeseries', confidence: 0.9, suggestions: { time: probableTime, wellColumns: wellCols } };
   }
   if (well && value) return { type: 'endpoint', confidence: 0.85, suggestions: { well: lower[well], value: lower[value] } };
-  const numericFractions = headers.map(h => ({ h, f: rows.slice(0, 30).filter(r => Number.isFinite(Number(r[h]))).length / Math.min(30, rows.length) })).sort((a, b) => b.f - a.f);
+  const numericFractions = headers.map(h => ({ h, f: rows.slice(0, 30).filter(r => Number.isFinite(optionalNumber(r[h]))).length / Math.min(30, rows.length) })).sort((a, b) => b.f - a.f);
   if (numericFractions[0]?.f > 0.7) return { type: 'generic_numeric', confidence: 0.6, suggestions: { value: numericFractions[0].h } };
   return { type: 'unknown', confidence: 0.25, suggestions: {} };
 }
@@ -60,9 +62,9 @@ export function detectShape(rows) {
 export function wideToLong(rows, timeField, valueColumns) {
   const out = [];
   rows.forEach((r, rowIndex) => {
-    const time = Number(r[timeField]);
+    const time = optionalNumber(r[timeField]);
     for (const col of valueColumns) {
-      const value = Number(r[col]);
+      const value = optionalNumber(r[col]);
       if (Number.isFinite(time) || Number.isFinite(value)) out.push({ source_row: rowIndex + 2, time, well: normalizeWell(col), value });
     }
   });
@@ -73,8 +75,8 @@ export function longToCanonical(rows, mapping) {
   return rows.map((r, i) => {
     const canonical = {
       source_row: i + 2,
-      time: mapping.time ? Number(r[mapping.time]) : NaN,
-      value: mapping.value ? Number(r[mapping.value]) : NaN,
+      time: mapping.time ? optionalNumber(r[mapping.time]) : NaN,
+      value: mapping.value ? optionalNumber(r[mapping.value]) : NaN,
       well: mapping.well ? normalizeWell(r[mapping.well]) : '',
       sample: mapping.sample ? String(r[mapping.sample] ?? '').trim() : '',
       plate: mapping.plate ? String(r[mapping.plate] ?? '').trim() : ''
