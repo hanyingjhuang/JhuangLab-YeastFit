@@ -1,3 +1,4 @@
+import './data-quality-exclusions.js';
 const api=window.YeastFit;
 const S=api?.S;
 const $=s=>document.querySelector(s);
