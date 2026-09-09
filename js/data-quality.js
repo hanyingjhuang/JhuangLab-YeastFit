@@ -9,6 +9,7 @@ const records=()=>S.qualityExclusions||(S.qualityExclusions=[]);
 let manualIds=new Set();
 let initialized=false;
 let exclusionTextarea=null;
+let lastRawRef=null;
 
 function field(rows,re){return rows?.length?Object.keys(rows[0]).find(k=>re.test(k))||'':''}
 function mappedField(id,re,rows){const v=$(id)?.value;return v&&rows?.some(r=>Object.prototype.hasOwnProperty.call(r,v))?v:field(rows,re)}
@@ -21,7 +22,7 @@ function candidates(){
   for(const r of rows){
     const sample=sf?String(r[sf]??'').trim():'',well=wf?String(r[wf]??'').trim():'',plate=pf?String(r[pf]??'').trim():'';
     if(sample){const k=`sample|${sample}`;if(!out.has(k))out.set(k,{scope:'sample',key:sample,label:[sample,well&&`well ${well}`,plate&&plate].filter(Boolean).join(' · ')});}
-    if(well){const k=`well|${well}`;if(!out.has(k))out.set(k,{scope:'well',key:well,label:[`Well ${well}`,sample,plate].filter(Boolean).join(' · ')});}
+    if(well){const k=`well|${well}`;if(!out.has(k))out.set(k,{scope:'well',key:well,label:[`Well ${well}`,sample,plate&&plate].filter(Boolean).join(' · ')});}
   }
   if(!out.size&&S?.raw?.length){for(const h of Object.keys(S.raw[0]))if(wellRe.test(h.trim()))out.set(`well|${h.trim()}`,{scope:'well',key:h.trim(),label:`Well ${h.trim()}`});}
   return [...out.values()].sort((a,b)=>a.label.localeCompare(b.label,undefined,{numeric:true}));
@@ -38,6 +39,11 @@ function missingSummary(){
 }
 function ta(){return exclusionTextarea||$('#excludedIds')}
 function parseManual(){const el=ta();if(!el)return;manualIds=new Set(el.value.split(/[\n,;]+/).map(x=>x.trim()).filter(Boolean).filter(x=>!records().some(r=>r.key===x)))}
+function resetForNewData(){
+  if(lastRawRef===null){lastRawRef=S.raw;return false;}
+  if(S.raw===lastRawRef)return false;
+  lastRawRef=S.raw;S.qualityExclusions=[];manualIds.clear();const el=ta();if(el)el.value='';S.design.qualityExclusions=[];return true;
+}
 function sync(){
   const el=ta();if(el){const ids=uniq([...manualIds,...records().map(r=>r.key)]);el.value=ids.join('\n');el.dispatchEvent(new Event('input',{bubbles:true}));}
   S.design.qualityExclusions=records().map(r=>({...r}));
@@ -57,6 +63,7 @@ function detectMetadataFlags(){
   const sf=mappedField('#sampleField',/^sample$|sample_id|strain_id|culture_id|clone_id/i,rows),wf=mappedField('#wellField',/^well$|well_id|position/i,rows);
   for(const r of rows){const v=String(r[qf]??'').trim();if(!/^(1|true|yes|y|contaminated|exclude|excluded|bad|fail|failed|invalid|remove)$/i.test(v))continue;const sample=sf?String(r[sf]??'').trim():'',well=wf?String(r[wf]??'').trim():'';const target=sample?{scope:'sample',key:sample,label:sample}:well?{scope:'well',key:well,label:`Well ${well}`}:null;if(target&&!records().some(x=>x.key===target.key&&x.scope===target.scope))addRecord(target,/contamin/i.test(v)?'contaminated':'excluded',rf?String(r[rf]||'Metadata quality flag'):'Metadata quality flag','metadata');}
 }
+function refresh(){resetForNewData();detectMetadataFlags();render()}
 function csv(rows){if(!rows.length)return'';const h=uniq(rows.flatMap(Object.keys)),q=v=>{const s=String(v??'');return /[",\n]/.test(s)?`"${s.replace(/"/g,'""')}"`:s};return[h.join(','),...rows.map(r=>h.map(k=>q(r[k])).join(','))].join('\n')}
 function downloadLog(){const ms=missingSummary(),rows=[...records().map(r=>({record_type:'exclusion',...r})),{record_type:'missing_data_summary',scope:'dataset',key:'',label:ms.label,status:'observed',reason:S.design.missingDataPolicy||'',source:'YeastFit',marked_at:new Date().toISOString()}];const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv(rows)],{type:'text/csv'}));a.download='YeastFit_data_quality_log.csv';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),500)}
 function render(){
@@ -74,14 +81,15 @@ function render(){
   root.querySelector('#dqDownload').onclick=downloadLog;
 }
 function install(){
-  if(initialized||!S)return;exclusionTextarea=$('#excludedIds');const old=exclusionTextarea?.closest('.subcard');if(!old)return;initialized=true;parseManual();
+  if(initialized||!S)return;exclusionTextarea=$('#excludedIds');const old=exclusionTextarea?.closest('.subcard');if(!old)return;initialized=true;lastRawRef=S.raw;parseManual();
   exclusionTextarea.remove();
   old.innerHTML='<h3>Data quality</h3><p class="muted">Missing values are handled explicitly. Mark contaminated samples or other exclusions here without deleting the original observations.</p><div id="dataQualityManager"></div>';
   const exp=$('.step-panel[data-panel="6"] .export-grid');if(exp&&!$('#qualityLogExport')){const b=document.createElement('button');b.id='qualityLogExport';b.className='export-card';b.innerHTML='<b>Data quality log</b><span>CSV</span><small>Missing-data policy, contaminated samples, exclusions, reasons, and provenance.</small>';b.onclick=downloadLog;exp.appendChild(b)}
   const style=document.createElement('style');style.id='dqStyle';style.textContent='.dq-summary{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:10px 0}.dq-summary>div{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fafbf8}.dq-summary small,.dq-summary span{display:block;color:var(--muted);font-size:10px}.dq-summary b{display:block;font-size:13px;margin:2px 0}.dq-controls{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:8px;align-items:end}.dq-controls label{margin:0!important}.dq-buttons{display:flex;gap:6px;grid-column:1/-1}.dq-list{margin:10px 0}.dq-record{display:flex;justify-content:space-between;gap:10px;align-items:center;border-top:1px solid #eee;padding:8px 0}.dq-record>div{min-width:0}.dq-record b,.dq-record small{display:block}.dq-record small{color:var(--muted);font-size:10px}.dq-badge{display:inline-block;font-size:9px;font-weight:850;letter-spacing:.06em;padding:2px 6px;border-radius:999px;background:#eee;color:#58635b;margin-right:6px}.dq-record.is-contaminated .dq-badge{background:#f4ddd5;color:#8a4938}.dq-empty{font-size:11px;color:var(--muted);padding:8px 0}.dq-advanced{margin:8px 0}.dq-advanced textarea{width:100%;margin-top:8px}.export-grid #qualityLogExport{display:flex}@media(max-width:700px){.dq-summary,.dq-controls{grid-template-columns:1fr}.dq-buttons{grid-column:auto}}';document.head.appendChild(style);
   detectMetadataFlags();render();
-  new MutationObserver(()=>{detectMetadataFlags();render()}).observe($('#fileList')||document.body,{childList:true,subtree:true});
-  document.addEventListener('change',e=>{if(['sampleField','wellField','plateField','valueField'].includes(e.target?.id)){detectMetadataFlags();render()}});
+  new MutationObserver(refresh).observe($('#fileList')||document.body,{childList:true,subtree:true});
+  document.querySelectorAll('.step-panel').forEach(p=>new MutationObserver(()=>{if(p.classList.contains('active'))refresh()}).observe(p,{attributes:true,attributeFilter:['class']}));
+  document.addEventListener('change',e=>{if(['sampleField','wellField','plateField','valueField'].includes(e.target?.id))refresh()});
 }
 setTimeout(install,0);
 export {missingToken,missingSummary};
